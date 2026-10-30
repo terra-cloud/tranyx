@@ -31,6 +31,7 @@ import '../client/widgets/sidebar.dart';
 import '../client/widgets/bottom_nav.dart';
 import '../client/widgets/chat_widget.dart';
 import '../client/widgets/top_header.dart';
+import '../components/search_and_breakdown_rules.dart';
 import '../client/widgets/category_modal.dart';
 import '../client/widgets/payment_modal.dart';
 import '../client/widgets/wallet_action_modal.dart';
@@ -394,6 +395,35 @@ class TranyxAppState extends State<TranyxApp> {
   String activeJobPane = 'active'; // 'active'/'history' for employer, 'browse'/'my_gigs' for nyxian
   Map<String, dynamic>? ongoingJob; // first 'In Progress' job
   String homeSearchQuery = '';
+  // Rentals (vehicles + real estate) search text, shared with the Rentals filters.
+  String rentalsSearchQuery = '';
+  // Explicit scope picked in a search box; null = follow the current page.
+  SearchScope? searchScopeOverride;
+  SearchScope get defaultSearchScopeForPage => defaultSearchScope(
+        onRentalsTab: activeTab == AppTab.transit,
+        propertiesCategory: activeRentalCategory == RentalCategory.properties,
+      );
+  SearchScope get searchScope => searchScopeOverride ?? defaultSearchScopeForPage;
+  String searchQueryFor(SearchScope scope) => scope.isRental ? rentalsSearchQuery : homeSearchQuery;
+  void setSearchQueryFor(SearchScope scope, String v) {
+    if (scope.isRental) {
+      rentalsSearchQuery = v;
+    } else {
+      homeSearchQuery = v;
+    }
+  }
+
+  /// A scope picked in a search box. On the Rentals page it also flips the
+  /// Vehicles / Real Estate category so the visible list matches.
+  void setSearchScope(SearchScope scope) {
+    setState(() {
+      searchScopeOverride = scope;
+      if (activeTab == AppTab.transit && scope.isRental) {
+        activeRentalCategory = scope == SearchScope.realEstate ? RentalCategory.properties : RentalCategory.vehicles;
+        searchScopeOverride = null;
+      }
+    });
+  }
 
   // ── Geofencing state ─────────────────────────────────────────
   double userLatitude = 14.5995; // default Manila
@@ -3045,9 +3075,33 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
-  void handleHomeSearch(String query) {
-    if (query.trim().isEmpty) return;
-    openJobsBrowse(search: query.trim());
+  void handleHomeSearch(String query) => handleGlobalSearch(query);
+
+  /// Global search (top bar, guest bar, home): routes to the list for the
+  /// selected scope — Jobs, Vehicles or Real Estate — with the text applied.
+  void handleGlobalSearch(String query, {SearchScope? scope}) {
+    final q = query.trim();
+    if (q.isEmpty) return;
+    final target = scope ?? searchScope;
+    searchScopeOverride = null;
+    if (target.isRental) {
+      openRentalsBrowse(
+        category: target == SearchScope.realEstate ? RentalCategory.properties : RentalCategory.vehicles,
+        search: q,
+      );
+    } else {
+      openJobsBrowse(search: q);
+    }
+  }
+
+  /// Open Rentals · Rent pane on a category with an optional text search.
+  void openRentalsBrowse({required RentalCategory category, String search = ''}) {
+    setState(() {
+      activeRentalCategory = category;
+      rentalsSearchQuery = search.trim();
+      transitMode = TransitMode.rent;
+    });
+    switchTab(AppTab.transit);
   }
 
   /// Open Jobs · Browse with an optional category chip and/or text search.
@@ -8145,6 +8199,7 @@ class TranyxAppState extends State<TranyxApp> {
 
     setState(() {
       activeTab = tab;
+      searchScopeOverride = null;
       if (tab != AppTab.profile) profileView = ProfileView.main;
       if (tab == AppTab.profile) {
         initializeProfileEditing();

@@ -22,7 +22,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   Timer? _tickTimer;
 
   // Common filters
-  String _searchQuery = '';
+  // Search text lives on the app state so the global search can pre-fill it.
+  String get _searchQuery => component.state.rentalsSearchQuery;
+  set _searchQuery(String v) => component.state.rentalsSearchQuery = v;
   double? _maxPrice;
   String _selectedDurationFilter = 'any'; // 'any', 'daily', 'weekly', 'monthly', 'yearly'
   String _selectedVehicleType = 'any'; // W30 type chip: any/car/motorcycle/truck/van/mpv

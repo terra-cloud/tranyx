@@ -7,6 +7,7 @@ import 'package:tranyx_web/components/job_selection_guards.dart';
 import 'package:tranyx_web/services/web_interop.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
+import '../../components/search_and_breakdown_rules.dart';
 import '../../state/app_state.dart';
 import '../utils/geo_helper.dart';
 import 'package:shared/shared.dart';
@@ -1880,11 +1881,19 @@ class _JobDetails extends StatelessComponent {
         ),
       ]),
 
-      // W22 estimated payment breakdown (same 3% / 7% / 3% formula as the verify-completion dialog)
+      // W22 estimated payment breakdown (same 3% / 7% / 3% formula as the verify-completion dialog).
+      // Visibility: guests see the general breakdown, a signed-in Nyxian only their earnings,
+      // the job's employer only their cost; nobody else sees one.
       Builder(
         builder: (context) {
           final base = (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
           if (base <= 0) return span([]);
+          final audience = jobBreakdownAudience(
+            currentUid: s.userProfile?.uid ?? SessionStorage.uid,
+            creatorId: s.selectedJobData?['creatorId'] as String?,
+            viewingAsNyxian: s.currentViewMode == AccountType.nyxian,
+          );
+          if (audience == JobBreakdownAudience.none) return span([]);
           String php(double v) => '₱${v.toStringAsFixed(2)}';
           Component row(String l, String v, {bool strong = false, String? tone}) => div(
                 classes: 'flex justify-between items-center text-xs ${strong ? "font-semibold pt-2 border-t " + (isDark ? "border-zinc-800" : "border-[#e4e4e7]") : ""}',
@@ -1893,31 +1902,39 @@ class _JobDetails extends StatelessComponent {
                   span(classes: 'font-semibold ${tone ?? (isDark ? "text-zinc-100" : "text-[#18181b]")}', [Component.text(v)]),
                 ],
               );
-          Component card(String badge, List<Component> rows) => div(
+          Component card(String? badge, List<Component> rows) => div(
                 classes: 'flex-1 min-w-0 p-4 rounded-2xl border ${isDark ? "border-zinc-800 bg-zinc-900" : "border-[#e4e4e7] bg-white"} space-y-2',
                 [
                   div(classes: 'flex items-center gap-2 mb-1', [
-                    span(classes: 'px-2 py-0.5 rounded-full text-[10px] font-semibold ${isDark ? "bg-indigo-500/15 text-indigo-300" : "bg-[#eef2ff] text-[#4f46e5]"}', [Component.text(badge)]),
+                    if (badge != null)
+                      span(classes: 'px-2 py-0.5 rounded-full text-[10px] font-semibold ${isDark ? "bg-indigo-500/15 text-indigo-300" : "bg-[#eef2ff] text-[#4f46e5]"}', [Component.text(badge)]),
                     span(classes: 'text-xs font-semibold ${isDark ? "text-zinc-200" : "text-[#18181b]"}', [Component.text('Estimated Payment Breakdown')]),
                   ]),
                   ...rows,
                 ],
               );
           final comm = base * 0.03, tx = base * 0.07, conv = base * 0.03;
+          final nyxianRows = [
+            row('Base Payout', php(base)),
+            row('Platform Commission (3%)', '− ${php(comm)}', tone: 'text-red-500'),
+            row('Net Earnings', php(base - comm), strong: true, tone: 'text-emerald-600'),
+          ];
+          final employerRows = [
+            row('Base Gig Price', php(base)),
+            row('Transaction Fee (7%)', '+ ${php(tx)}'),
+            row('Convenience Fee (3%)', '+ ${php(conv)}'),
+            row('Total Paid', php(base + tx + conv), strong: true),
+          ];
           return div(classes: 'space-y-3', [
-            div(classes: 'flex flex-col md:flex-row gap-3', [
-              card('Nyxian view', [
-                row('Base Payout', php(base)),
-                row('Platform Commission (3%)', '− ${php(comm)}', tone: 'text-red-500'),
-                row('Net Earnings', php(base - comm), strong: true, tone: 'text-emerald-600'),
+            if (audience == JobBreakdownAudience.guest)
+              div(classes: 'flex flex-col md:flex-row gap-3', [
+                card('Nyxian earnings', nyxianRows),
+                card('Employer cost', employerRows),
+              ])
+            else
+              div(classes: 'flex flex-col', [
+                card(null, audience == JobBreakdownAudience.nyxian ? nyxianRows : employerRows),
               ]),
-              card('Employer view', [
-                row('Base Gig Price', php(base)),
-                row('Transaction Fee (7%)', '+ ${php(tx)}'),
-                row('Convenience Fee (3%)', '+ ${php(conv)}'),
-                row('Total Paid', php(base + tx + conv), strong: true),
-              ]),
-            ]),
             div(classes: 'flex items-center gap-2 text-xs ${isDark ? "text-zinc-500" : "text-[#71717a]"}', [
               lIcon('shield-check', cls: 'w-3.5 h-3.5 text-emerald-500'),
               Component.text('Payment is held in escrow and released to the Nyxian once the job is verified complete.'),

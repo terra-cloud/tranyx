@@ -7,6 +7,8 @@ import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
 import 'package:shared/shared.dart';
 import '../utils/geo_helper.dart';
+import '../widgets/top_header.dart';
+import '../../components/search_and_breakdown_rules.dart';
 
 class HomeViewComponent extends StatefulComponent {
   final TranyxAppState state;
@@ -425,31 +427,32 @@ class HomeViewComponentState extends State<HomeViewComponent> {
             classes:
                 'flex items-center gap-3 p-4 rounded-2xl border transition-colors ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200 shadow-sm"}',
             [
+              searchScopeSelect(s),
               lIcon('search', cls: 'w-5 h-5 ${isDark ? "text-zinc-600" : "text-zinc-400"} flex-shrink-0'),
               input(
                 classes:
                     'bg-transparent border-none outline-none flex-1 text-sm md:text-base ${isDark ? "text-zinc-200 placeholder-zinc-600" : "text-zinc-800 placeholder-zinc-400"}',
                 type: InputType.search,
                 attributes: {
-                  'placeholder': 'Search available gigs...',
-                  'value': s.homeSearchQuery,
+                  'placeholder': s.searchScope.placeholder,
+                  'value': s.searchQueryFor(s.searchScope),
                   'id': 'home-search-input',
                   'name': 'search',
                 },
                 events: {
                   'input': (e) {
-                    s.setState(() => s.homeSearchQuery = getInputValue(e.target));
+                    s.setState(() => s.setSearchQueryFor(s.searchScope, getInputValue(e.target)));
                   },
                   'keydown': (e) {
                     final key = (e as web.KeyboardEvent).key;
-                    if (key == 'Enter') s.handleHomeSearch(s.homeSearchQuery);
+                    if (key == 'Enter') s.handleGlobalSearch(s.searchQueryFor(s.searchScope));
                   },
                 },
               ),
               button(
                 classes:
                     'flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity',
-                events: {'click': (_) => s.handleHomeSearch(s.homeSearchQuery)},
+                events: {'click': (_) => s.handleGlobalSearch(s.searchQueryFor(s.searchScope))},
                 [Component.text('Search')],
               ),
             ],
