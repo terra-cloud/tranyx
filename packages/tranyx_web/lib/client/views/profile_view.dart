@@ -2714,13 +2714,20 @@ class _TrustVerification extends StatelessComponent {
               ]),
               if ((s.userProfile?.walletPublicKey ?? '').isNotEmpty)
                 div(classes: 'flex items-center gap-1.5', [
-                  // One signature proves the wallet is yours (needed to sign in with it); older links made without one need it once.
-                  button(
-                    classes:
-                        'px-3 py-1 text-xs font-bold rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all border border-indigo-500/20',
-                    events: {'click': (_) => s.linkSolanaWallet(s.currentWalletType())},
-                    [Component.text('Verify')],
-                  ),
+                  // One signature proves the wallet is yours. Deposits and wallet sign-in need it, so a wallet linked
+                  // without one is asked to verify once.
+                  if (s.walletVerified == true)
+                    span(
+                      classes: 'px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg bg-green-500/10 text-green-400 border border-green-500/20',
+                      [Component.text('Verified')],
+                    )
+                  else
+                    button(
+                      classes:
+                          'px-3 py-1 text-xs font-bold rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 transition-all border border-indigo-500/20',
+                      events: {'click': (_) => s.linkSolanaWallet(s.currentWalletType())},
+                      [Component.text('Verify wallet')],
+                    ),
                   button(
                     classes:
                         'px-3 py-1 text-xs font-bold rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/20',
