@@ -7,11 +7,11 @@ import { knownHole, setupEnv, seed, user, adminClaim, guest, userProfile, withdr
 setupEnv();
 
 describe('MON: tyxBalance is server-only (regression for 879fd40)', () => {
-  knownHole('KNOWN-HOLE MON-01 [CRITICAL] owner cannot INCREASE own tyxBalance (10_workspace_users_wallets.rules / web refunds+host payouts still client-side; KAN-126 ledger)', async () => {
+  it('MON-01 [CRITICAL] owner cannot INCREASE own tyxBalance', async () => {
     await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { tyxBalance: 1000000 }));
   });
-  knownHole('KNOWN-HOLE MON-02 [HIGH] owner cannot set own tyxBalance to any client-chosen value, incl. decrease (compiled:130-132)', async () => {
+  it('MON-02 [HIGH] owner cannot set own tyxBalance to any client-chosen value, incl. decrease', async () => {
     await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { tyxBalance: 40 }));
   });
@@ -22,6 +22,21 @@ describe('MON: tyxBalance is server-only (regression for 879fd40)', () => {
   it('MON-04 [HIGH] another user cannot write victim tyxBalance (no doc role) — secure today', async () => {
     await seed({ 'users/victim': userProfile('victim'), 'users/u2': userProfile('u2') });
     await assertFails(updateDoc(doc(user('u2'), 'users/victim'), { tyxBalance: 0 }));
+  });
+});
+
+describe('MON: reservedBalance and staff still able to adjust money', () => {
+  it('MON-02b [HIGH] owner cannot set own reservedBalance', async () => {
+    await seed({ 'users/u1': userProfile('u1') });
+    await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { reservedBalance: 50 }));
+  });
+  it('MON-02c [MUST-ALLOW] owner can still update ordinary profile fields while a tyxBalance is present', async () => {
+    await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
+    await assertSucceeds(updateDoc(doc(user('u1'), 'users/u1'), { headline: 'Plumber', skills: ['plumbing', 'tiling'] }));
+  });
+  it('MON-02d [MUST-ALLOW] staff can still adjust tyxBalance (support fix)', async () => {
+    await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
+    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/u1'), { tyxBalance: 150 }));
   });
 });
 

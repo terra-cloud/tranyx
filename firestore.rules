@@ -259,7 +259,9 @@ service cloud.firestore {
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'rating', 'ratingCount',
           'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount',
-          'subscriptionTxId', 'subscriptionStatus'
+          'subscriptionTxId', 'subscriptionStatus',
+          // Money (server-only): tyxBalance / reservedBalance move only through Cloud Functions or staff.
+          'tyxBalance', 'reservedBalance'
         ]) && ownerPremiumNotRaised())
         || 
         // 2. Admin / Staff: Can update admin, moderation & verification fields
