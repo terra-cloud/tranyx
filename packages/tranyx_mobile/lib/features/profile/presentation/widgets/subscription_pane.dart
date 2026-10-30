@@ -431,8 +431,6 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
           uid: uid,
           signature: signature,
           plan: _selectedPlan,
-          phpAmount: phpAmount,
-          cryptoAmount: cryptoAmount,
         )).throwIfHeldElsewhere(signature);
         ref.invalidate(userProfileProvider);
         ref.invalidate(userTransactionsProvider);
@@ -523,9 +521,6 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
           uid: uid,
           signature: txSignature,
           plan: _selectedPlan,
-          phpAmount: phpAmount,
-          cryptoAmount: cryptoAmount,
-          method: 'Trust Wallet',
         )).throwIfHeldElsewhere(txSignature);
 
         ref.invalidate(userProfileProvider);

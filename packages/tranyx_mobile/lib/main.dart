@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -62,6 +63,16 @@ FutureOr<void> main() async {
     try {
       final options = _getFirebaseOptions(F.appFlavor);
       await Firebase.initializeApp(options: options);
+      // KAN-146: App Check attests this is the genuine app when calling the withdrawal function.
+      // Debug builds use the debug provider (register the printed debug token in the console).
+      try {
+        await FirebaseAppCheck.instance.activate(
+          providerAndroid: kDebugMode ? AndroidDebugProvider() : AndroidPlayIntegrityProvider(),
+          providerApple: kDebugMode ? AppleDebugProvider() : AppleAppAttestWithDeviceCheckFallbackProvider(),
+        );
+      } catch (e) {
+        debugPrint("Warning: App Check activation failed: $e");
+      }
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     } catch (e) {
       debugPrint("Warning: Firebase initialization deferred or failed: $e");

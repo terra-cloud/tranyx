@@ -66,6 +66,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore-compat.js" crossorigin="anonymous"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-check-compat.js" crossorigin="anonymous"></script>
 
   <!-- Buffer Polyfill loaded BEFORE Solana web3.js -->
   <script src="/buffer.min.js"></script>
@@ -968,6 +969,23 @@
       } catch (e) {
         console.error("signSolanaMessage failed:", e);
         throw e;
+      }
+    };
+
+    // App Check token for callable functions (KAN-146). Site key is public (reCAPTCHA v3/Enterprise).
+    window.getAppCheckToken = async function (config, siteKey) {
+      try {
+        if (!siteKey || !window.firebase || !firebase.appCheck) return null;
+        if (!firebase.apps.length) firebase.initializeApp(config);
+        if (!window.__tyxAppCheckActive) {
+          firebase.appCheck().activate(siteKey, true);
+          window.__tyxAppCheckActive = true;
+        }
+        const t = await firebase.appCheck().getToken();
+        return t && t.token ? t.token : null;
+      } catch (e) {
+        console.warn("App Check unavailable:", e);
+        return null;
       }
     };
 

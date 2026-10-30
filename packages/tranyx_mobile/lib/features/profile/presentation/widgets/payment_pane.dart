@@ -2206,21 +2206,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
       firestore: ref.read(firestoreProvider),
       uid: uid,
       signature: txSignature,
-      markerId: isSol ? 'deposit_sol_$txSignature' : 'deposit_usdt_$txSignature',
-      phpAmount: phpAmount,
-      markerData: {
-        'uid': uid,
-        'type': 'deposit',
-        'amount': phpAmount,
-        'title': 'Wallet Top-Up ($currency via Solana Mobile Wallet)',
-        'desc': isSol
-            ? 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Solana Mobile Wallet Adapter'
-            : 'Crypto deposit of \$${cryptoAmount.toStringAsFixed(2)} USDT via Solana Mobile Wallet Adapter',
-        'method': 'Solana Mobile Wallet',
-        'solanaTxSignature': txSignature,
-        if (!isSol) 'currency': 'USDT',
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-      },
+      isUsdt: !isSol,
     )).throwIfHeldElsewhere(txSignature);
 
     ref.invalidate(userProfileProvider);
@@ -2545,18 +2531,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
             firestore: firestore,
             uid: uid,
             signature: txSignature,
-            markerId: 'deposit_sol_$txSignature',
-            phpAmount: phpAmount,
-            markerData: {
-              'uid': uid,
-              'type': 'deposit',
-              'amount': phpAmount,
-              'title': 'Wallet Top-Up (SOL via Trust Wallet)',
-              'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} SOL via Trust Wallet',
-              'method': 'Trust Wallet',
-              'solanaTxSignature': txSignature,
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-            },
+            isUsdt: false,
           )).throwIfHeldElsewhere(txSignature);
 
           ref.invalidate(userProfileProvider);
@@ -2778,19 +2753,7 @@ class _PaymentPaneState extends ConsumerState<PaymentPane> {
             firestore: firestore,
             uid: uid,
             signature: txSignature,
-            markerId: 'deposit_usdt_$txSignature',
-            phpAmount: phpAmount,
-            markerData: {
-              'uid': uid,
-              'type': 'deposit',
-              'amount': phpAmount,
-              'title': 'Wallet Top-Up (USDT via Trust Wallet)',
-              'desc': 'Crypto deposit of \$${amountInUsdt.toStringAsFixed(2)} USDT via Trust Wallet',
-              'method': 'Trust Wallet',
-              'solanaTxSignature': txSignature,
-              'currency': 'USDT',
-              'createdAt': DateTime.now().millisecondsSinceEpoch,
-            },
+            isUsdt: true,
           )).throwIfHeldElsewhere(txSignature);
 
           ref.invalidate(userProfileProvider);

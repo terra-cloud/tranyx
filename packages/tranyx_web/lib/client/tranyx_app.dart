@@ -4140,24 +4140,10 @@ class TranyxAppState extends State<TranyxApp> {
         cryptoAmount: amountInSol,
         currency: 'SOL',
       );
-      final walletLabel = '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}';
       final credit = await svc.creditOnchainDeposit(
         uid: uid,
         signature: signature,
-        markerId: 'deposit_sol_$signature',
-        phpAmount: depositAmount,
-        markerData: {
-          'uid': uid,
-          'title': 'Wallet Top-Up (SOL)',
-          'desc': 'Crypto deposit of ${amountInSol.toStringAsFixed(4)} SOL via $walletLabel',
-          'amount': depositAmount,
-          'status': 'Successful',
-          'method': 'Solana',
-          'solanaTxSignature': signature,
-          'solanaAmount': amountInSol,
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'deposit',
-        },
+        isUsdt: false,
       );
       // Another account holds this signature (or the rules refused): nothing was credited.
       credit.throwIfHeldElsewhere(signature);
@@ -4316,25 +4302,10 @@ class TranyxAppState extends State<TranyxApp> {
         cryptoAmount: amountInSol,
         currency: 'SOL',
       );
-      final walletLabel = '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}';
       final activation = await svc.activateSubscriptionOnchain(
         uid: uid,
         signature: signature,
         plan: subType == 'yearly' ? 'yearly' : 'monthly',
-        phpAmount: phpPrice,
-        markerData: {
-          'uid': uid,
-          'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
-          'desc': 'Subscribed via $walletLabel (${amountInSol.toStringAsFixed(4)} SOL)',
-          'amount': phpPrice,
-          'status': 'Successful',
-          'method': 'Solana',
-          'solanaTxSignature': signature,
-          'solanaAmount': amountInSol,
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'subscription',
-          'kind': 'subscription',
-        },
       );
       // Another account holds this signature (or the rules refused): nothing was activated.
       activation.throwIfHeldElsewhere(signature);
@@ -4679,24 +4650,10 @@ class TranyxAppState extends State<TranyxApp> {
         cryptoAmount: amountInUsdt,
         currency: 'USDT',
       );
-      final walletLabel = '${activeWalletType.substring(0, 1).toUpperCase()}${activeWalletType.substring(1)}';
       final credit = await svc.creditOnchainDeposit(
         uid: uid,
         signature: signature,
-        markerId: 'deposit_usdt_$signature',
-        phpAmount: phpEquivalent,
-        markerData: {
-          'uid': uid,
-          'title': 'Wallet Top-Up (USDT)',
-          'desc': 'Crypto deposit of ${amountInUsdt.toStringAsFixed(2)} USDT via $walletLabel',
-          'amount': phpEquivalent,
-          'status': 'Successful',
-          'method': 'Solana/USDT',
-          'solanaTxSignature': signature,
-          'usdtAmount': amountInUsdt,
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-          'type': 'deposit',
-        },
+        isUsdt: true,
       );
       // Another account holds this signature (or the rules refused): nothing was credited.
       credit.throwIfHeldElsewhere(signature);

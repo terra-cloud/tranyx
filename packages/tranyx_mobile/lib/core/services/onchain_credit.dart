@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared/shared.dart';
+import 'package:tranyx_mobile/core/services/cloud_function_client.dart';
 
 // Ids, notes, results and document shapes live in packages/shared so the web
 // client writes exactly the same thing. Re-exported for existing imports.
@@ -7,6 +8,8 @@ export 'package:shared/shared.dart'
     show
         OnchainCommitResult,
         OnchainCommitResultX,
+        OnchainCreditKind,
+        OnchainCreditResponse,
         OnchainSupportException,
         kContentionNote,
         kMarkerHeldNote,
@@ -79,187 +82,83 @@ Future<void> notePendingOnchain({
   } catch (_) {}
 }
 
-/// In ONE Firestore transaction: applies the user update built from the CURRENT
-/// user doc, creates [markerId] and the shared `onchain_<signature>` marker, and
-/// marks the caller's pending record done.
+/// Asks the `creditOnchainPayment` Cloud Function to credit [signature] once.
 ///
-/// `onchain_<signature>` is read FIRST and decides the outcome by its owner:
-/// - another uid (someone squatted or previously used the signature): the
-///   per-flow marker is not even read (the rules keep it owner-only); nothing is
-///   credited, the caller's own pending record is created/kept open with a note
-///   and [OnchainCommitResult.heldByAnotherAccount] is returned, so the UI can
-///   tell the user to contact support;
-/// - same uid: [OnchainCommitResult.alreadyProcessed] (replay / double tap);
-/// - missing: the per-flow marker is read; if it exists it is a replay of an
-///   older credit ([OnchainCommitResult.alreadyProcessed]), or foreign
-///   ([OnchainCommitResult.heldByAnotherAccount]).
-///
-/// A `permission-denied` from the rules is NOT a foreign marker: it is reported
-/// as [OnchainCommitResult.refusedByRules] with its own pending note, so support
-/// can tell the two apart. heldByAnotherAccount means a foreign marker was read.
-Future<OnchainCommitResult> commitOnceByMarker({
+/// The app no longer writes balances or markers: the server reads the FINALIZED transaction,
+/// checks the payer is the linked wallet and the destination is the treasury, recomputes the PHP
+/// value from its own rate source and writes the markers + credit in one Admin SDK transaction.
+/// While the transaction is not finalized yet the call is repeated. A refusal leaves a note on the
+/// caller's pending record (server side) and is returned as
+/// [OnchainCommitResult.heldByAnotherAccount] / [OnchainCommitResult.rejectedByServer] so the UI shows
+/// "Contact support with signature ...". Network failures rethrow [CloudFunctionException].
+Future<OnchainCommitResult> creditOnchainOnServer({
   required FirebaseFirestore firestore,
   required String uid,
   required String signature,
-  required String markerId,
-  required Map<String, dynamic> markerData,
-  required Map<String, dynamic> Function(Map<String, dynamic> user)
-  buildUserUpdate,
+  required OnchainCreditKind kind,
+  String? plan,
+  CreditInvoker? invoke,
 }) async {
-  final kind = markerData['type'] == 'subscription'
-      ? 'subscription'
-      : 'deposit';
   try {
-    return await firestore.runTransaction<OnchainCommitResult>((tx) async {
-      final userRef = firestore.collection('users').doc(uid);
-      final markerRef = firestore.collection('transactions').doc(markerId);
-      final onchainRef = firestore
-          .collection('transactions')
-          .doc(onchainMarkerId(signature));
-      final pendingRef = firestore
-          .collection('transactions')
-          .doc(pendingOnchainId(uid, signature));
-
-      // All reads first, shared marker before anything else.
-      final onchainSnap = await tx.get(onchainRef);
-
-      // Leaves the caller's own pending record open with a note (no balance change).
-      Future<OnchainCommitResult> held() async {
-        final pendingSnap = await tx.get(pendingRef);
-        if (!pendingSnap.exists) {
-          tx.set(
-            pendingRef,
-            pendingOnchainData(
-              uid: uid,
-              signature: signature,
-              kind: kind,
-              startedAt: DateTime.now().millisecondsSinceEpoch,
-              note: kMarkerHeldNote,
-            ),
-          );
-        } else if (pendingSnap.data()?['status'] != 'done') {
-          tx.update(pendingRef, {'note': kMarkerHeldNote});
-        }
-        return OnchainCommitResult.heldByAnotherAccount;
-      }
-
-      if (onchainSnap.exists && onchainSnap.data()?['uid'] != uid)
-        return held();
-      if (onchainSnap.exists) return OnchainCommitResult.alreadyProcessed;
-
-      final markerSnap = await tx.get(markerRef);
-      if (markerSnap.exists) {
-        return markerSnap.data()?['uid'] == uid
-            ? OnchainCommitResult.alreadyProcessed
-            : held();
-      }
-      final userSnap = await tx.get(userRef);
-      final pendingSnap = await tx.get(pendingRef);
-
-      final user = userSnap.data();
-      if (user == null) throw StateError('User profile not found.');
-
-      tx.update(userRef, buildUserUpdate(user));
-      tx.set(markerRef, markerData);
-      // Exactly these keys: the rules reject anything else.
-      tx.set(
-        onchainRef,
-        onchainMarkerData(
+    final res = await creditOnchainViaServer(
+      invoke: invoke ?? (data) => callCloudFunction('creditOnchainPayment', data),
+      signature: signature,
+      kind: kind,
+      plan: plan,
+    );
+    if (res.result.needsSupport) {
+      // The server already noted rejections; a foreign marker is noted here (own pending record only).
+      if (res.result == OnchainCommitResult.heldByAnotherAccount) {
+        await notePendingOnchain(
+          firestore: firestore,
           uid: uid,
           signature: signature,
-          markerId: markerId,
-          markedAt: DateTime.now().millisecondsSinceEpoch,
-        ),
-      );
-      if (pendingSnap.exists) {
-        tx.update(pendingRef, {
-          'status': 'done',
-          'completedAt': DateTime.now().millisecondsSinceEpoch,
-        });
+          note: kMarkerHeldNote,
+          kind: kind.pendingKind,
+        );
       }
-      return OnchainCommitResult.credited;
-    });
-  } on FirebaseException catch (e) {
-    if (e.code == 'aborted') {
-      // The SDK exhausted its retries on contention: nothing was credited.
-      await notePendingOnchain(
-        firestore: firestore,
-        uid: uid,
-        signature: signature,
-        note: kContentionNote,
-        kind: kind,
-      );
-      throw OnchainSupportException(signature);
     }
-    if (e.code != 'permission-denied') rethrow;
+    return res.result;
+  } on OnchainSupportException {
     await notePendingOnchain(
       firestore: firestore,
       uid: uid,
       signature: signature,
-      note: kRefusedByRulesNote,
-      kind: kind,
+      note: 'not finalized in time, retry',
+      kind: kind.pendingKind,
     );
-    return OnchainCommitResult.refusedByRules;
+    rethrow;
   }
 }
 
-/// Credits a deposit: shared marker + deposit marker + `FieldValue.increment`
-/// (never read-then-add), all in one transaction.
+/// Credits a SOL/USDT deposit for [signature]. The PHP amount is computed by the server.
 Future<OnchainCommitResult> creditOnchainDeposit({
   required FirebaseFirestore firestore,
   required String uid,
   required String signature,
-  required String markerId,
-  required double phpAmount,
-  required Map<String, dynamic> markerData,
-}) => commitOnceByMarker(
+  required bool isUsdt,
+  CreditInvoker? invoke,
+}) => creditOnchainOnServer(
   firestore: firestore,
   uid: uid,
   signature: signature,
-  markerId: markerId,
-  markerData: markerData,
-  buildUserUpdate: (_) => {'tyxBalance': FieldValue.increment(phpAmount)},
+  kind: isUsdt ? OnchainCreditKind.depositUsdt : OnchainCreditKind.depositSol,
+  invoke: invoke,
 );
 
-/// Activates Hybrid PRO for [uid] after an on-chain payment, once per signature.
-/// Same user fields and `sub_sol_<signature>` record as the original Solana
-/// flow, but the new expiry extends from max(now, current premiumUntil) so
-/// paying while already subscribed never shortens or resets the plan.
+/// Activates Hybrid PRO for [uid] after an on-chain SOL payment, once per signature (server side).
+/// The expiry extends from max(now, premiumUntil); the server checks the paid value covers the plan.
 Future<OnchainCommitResult> activateSubscriptionOnce({
   required FirebaseFirestore firestore,
   required String uid,
   required String signature,
   required String plan, // 'yearly' | 'monthly'
-  required double phpAmount,
-  required double cryptoAmount,
-  String method = 'Solana Mobile Wallet',
-  DateTime? now,
-}) {
-  final at = now ?? DateTime.now();
-  final yearly = plan == 'yearly';
-  return commitOnceByMarker(
-    firestore: firestore,
-    uid: uid,
-    signature: signature,
-    markerId: 'sub_sol_$signature',
-    markerData: {
-      'uid': uid,
-      'type': 'subscription',
-      'amount': phpAmount,
-      'title': 'Hybrid PRO Subscription (${yearly ? 'Yearly' : 'Monthly'})',
-      'desc': 'Subscribed via $method (${cryptoAmount.toStringAsFixed(4)} SOL)',
-      'method': method,
-      'solanaTxSignature': signature,
-      'createdAt': at.millisecondsSinceEpoch,
-    },
-    buildUserUpdate: (user) => {
-      'isPremium': true,
-      'premiumUntil': nextPremiumUntilMs(
-        currentPremiumUntilMs: (user['premiumUntil'] as num?)?.toInt(),
-        nowMs: at.millisecondsSinceEpoch,
-        plan: plan,
-      ),
-      'accountType': 'hybrid',
-    },
-  );
-}
+  CreditInvoker? invoke,
+}) => creditOnchainOnServer(
+  firestore: firestore,
+  uid: uid,
+  signature: signature,
+  kind: OnchainCreditKind.subscriptionSol,
+  plan: plan,
+  invoke: invoke,
+);
