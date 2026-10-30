@@ -1140,16 +1140,39 @@ service cloud.firestore {
       }
     }
 
+    // Support ticket create: only the web profile_view.dart submitTicket writes these (uid, userEmail, userName,
+    // subject, description, category, status 'Open', createdAt epoch ms). Mobile writes none; the admin panel
+    // (staff) handles everything else, so owners never update or delete.
+    function isValidTicketCreate() {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['uid', 'userEmail', 'userName', 'subject', 'description', 'category', 'status', 'createdAt']) &&
+        d.keys().hasAll(['uid', 'subject', 'description', 'status', 'createdAt']) &&
+        d.uid == request.auth.uid &&
+        d.status == 'Open' &&
+        d.subject is string && d.subject.size() > 0 && d.subject.size() <= 200 &&
+        d.description is string && d.description.size() > 0 && d.description.size() <= 5000 &&
+        d.get('category', '') is string && d.get('category', '').size() <= 50 &&
+        d.get('userName', '') is string && d.get('userName', '').size() <= 100 &&
+        d.get('userEmail', '') is string && d.get('userEmail', '').size() <= 254 &&
+        d.createdAt is number &&
+        d.createdAt >= request.time.toMillis() - 600000 && d.createdAt <= request.time.toMillis() + 600000;
+    }
+
     // Support Tickets Collections (Cross-platform compatibility)
     match /supportTickets/{ticketId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidTicketCreate() || isAdminOrStaff();
+      allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
         allow read, write: if isAuthenticated();
       }
     }
 
     match /support_tickets/{ticketId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidTicketCreate() || isAdminOrStaff();
+      allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
         allow read, write: if isAuthenticated();
       }
