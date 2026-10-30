@@ -75,6 +75,8 @@ Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double a
 
 Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async => null;
 Future<String?> signSolanaMessage(String fromAddress, String message) async => null;
+/// App Check token for callable requests (null when no site key is configured).
+Future<String?> getAppCheckTokenJs(Map<String, String> config, String siteKey) async => null;
 Future<String?> broadcastTreasuryTransfer({
   required String treasuryPrivKeyBase58,
   required String recipientPubkey,

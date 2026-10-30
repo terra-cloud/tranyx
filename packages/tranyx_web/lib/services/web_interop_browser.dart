@@ -549,6 +549,24 @@ Future<String?> signSolanaMessage(String fromAddress, String message) async {
   }
 }
 
+/// App Check (reCAPTCHA) token for callable requests. Returns null when [siteKey] is empty or
+/// App Check cannot be initialised; the server then rejects the call if enforcement is on.
+Future<String?> getAppCheckTokenJs(Map<String, String> config, String siteKey) async {
+  if (siteKey.isEmpty) return null;
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    final promise = web.window.callMethodVarArgs('getAppCheckToken'.toJS, [jsConfig, siteKey.toJS]) as JSPromise?;
+    if (promise == null) return null;
+    final res = await promise.toDart;
+    return res == null ? null : (res as JSString).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<String?> broadcastTreasuryTransfer({
   required String treasuryPrivKeyBase58,
   required String recipientPubkey,
