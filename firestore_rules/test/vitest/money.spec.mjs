@@ -2,16 +2,16 @@
 import { describe, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { knownHole, setupEnv, seed, user, guest, userProfile, withdrawal } from './helpers.mjs';
+import { knownHole, setupEnv, seed, user, adminClaim, guest, userProfile, withdrawal } from './helpers.mjs';
 
 setupEnv();
 
 describe('MON: tyxBalance is server-only (regression for 879fd40)', () => {
-  knownHole('KNOWN-HOLE MON-01 [CRITICAL] owner cannot INCREASE own tyxBalance (10_workspace_users_wallets.rules / web refunds+host payouts still client-side; KAN-126 ledger)', async () => {
+  it('MON-01 [CRITICAL] owner cannot INCREASE own tyxBalance', async () => {
     await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { tyxBalance: 1000000 }));
   });
-  knownHole('KNOWN-HOLE MON-02 [HIGH] owner cannot set own tyxBalance to any client-chosen value, incl. decrease (compiled:130-132)', async () => {
+  it('MON-02 [HIGH] owner cannot set own tyxBalance to any client-chosen value, incl. decrease', async () => {
     await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { tyxBalance: 40 }));
   });
@@ -25,14 +25,64 @@ describe('MON: tyxBalance is server-only (regression for 879fd40)', () => {
   });
 });
 
+describe('MON: reservedBalance and staff still able to adjust money', () => {
+  it('MON-02b [HIGH] owner cannot set own reservedBalance', async () => {
+    await seed({ 'users/u1': userProfile('u1') });
+    await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { reservedBalance: 50 }));
+  });
+  it('MON-02c [MUST-ALLOW] owner can still update ordinary profile fields while a tyxBalance is present', async () => {
+    await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
+    await assertSucceeds(updateDoc(doc(user('u1'), 'users/u1'), { headline: 'Plumber', skills: ['plumbing', 'tiling'] }));
+  });
+  it('MON-02d [MUST-ALLOW] staff can still adjust tyxBalance (support fix)', async () => {
+    await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
+    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/u1'), { tyxBalance: 150 }));
+  });
+});
+
 describe('MON: premium / subscription fields', () => {
-  knownHole('KNOWN-HOLE MON-05 [HIGH] owner cannot self-grant isPremium + premiumUntil (branch 4: 10_...:31-36 / compiled:141-146)', async () => {
+  it('MON-05 [HIGH] owner cannot self-grant isPremium + premiumUntil', async () => {
     await seed({ 'users/u1': userProfile('u1') });
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { isPremium: true, premiumUntil: 1893456000000 }));
   });
-  knownHole('KNOWN-HOLE MON-06 [HIGH] owner cannot self-set subscriptionPlan/subscriptionStatus (compiled:141-146)', async () => {
+  it('MON-06 [HIGH] owner cannot self-set subscriptionPlan/subscriptionStatus/accountType hybrid', async () => {
     await seed({ 'users/u1': userProfile('u1') });
     await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { subscriptionPlan: 'pro_yearly', subscriptionStatus: 'active', accountType: 'premium' }));
+  });
+  for (const [name, patch] of [
+    ['accountType hybrid alone', { accountType: 'hybrid' }],
+    ['subscriptionStatus alone', { subscriptionStatus: 'active' }],
+    ['subscriptionPlan alone', { subscriptionPlan: 'yearly' }],
+    ['subscriptionTxId alone', { subscriptionTxId: 'sub_sol_x' }],
+    ['subscriptionPaymentAmount alone', { subscriptionPaymentAmount: 0 }],
+    ['isPremium alone', { isPremium: true }],
+    ['premiumUntil alone', { premiumUntil: 1893456000000 }],
+    ['the whole grant incl. pendingSubscription/updatedAt (old rule 3 shape)', { isPremium: true, premiumUntil: 1893456000000, accountType: 'hybrid', subscriptionStatus: 'active', pendingSubscription: null, updatedAt: 1 }],
+  ]) {
+    it(`MON-05b [HIGH] owner cannot self-grant: ${name}`, async () => {
+      await seed({ 'users/u1': userProfile('u1') });
+      await assertFails(updateDoc(doc(user('u1'), 'users/u1'), patch));
+    });
+  }
+  it('MON-05c [HIGH] owner cannot extend an existing premiumUntil or flip a lapsed isPremium back on', async () => {
+    await seed({ 'users/u1': userProfile('u1', { isPremium: true, premiumUntil: 1000, accountType: 'hybrid' }), 'users/u2': userProfile('u2', { isPremium: false, premiumUntil: null }) });
+    await assertFails(updateDoc(doc(user('u1'), 'users/u1'), { premiumUntil: 1893456000000 }));
+    await assertFails(updateDoc(doc(user('u2'), 'users/u2'), { isPremium: true }));
+  });
+  it('MON-05d [MUST-ALLOW] owner can still downgrade (expiry): isPremium false, accountType nyxian, premiumUntil null', async () => {
+    await seed({ 'users/u1': userProfile('u1', { isPremium: true, premiumUntil: 1000, accountType: 'hybrid' }) });
+    await assertSucceeds(updateDoc(doc(user('u1'), 'users/u1'), { isPremium: false, accountType: 'nyxian', premiumUntil: null }));
+  });
+  it('MON-05e [HIGH] new signup cannot create a profile that is already premium/hybrid or carries subscription fields', async () => {
+    const base = (extra) => userProfile('n1', { tyxBalance: 0, ...extra });
+    await assertFails(setDoc(doc(user('n1'), 'users/n1'), base({ isPremium: true, premiumUntil: 1893456000000 })));
+    await assertFails(setDoc(doc(user('n1'), 'users/n1'), base({ accountType: 'hybrid' })));
+    await assertFails(setDoc(doc(user('n1'), 'users/n1'), base({ subscriptionStatus: 'active' })));
+    await assertSucceeds(setDoc(doc(user('n1'), 'users/n1'), base({})));
+  });
+  it('MON-05f [MUST-ALLOW] staff can still grant premium and subscription fields', async () => {
+    await seed({ 'users/u1': userProfile('u1') });
+    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/u1'), { isPremium: true, premiumUntil: 1893456000000, accountType: 'hybrid', subscriptionStatus: 'active', subscriptionPlan: 'yearly' }));
   });
   it('MON-07 [CRITICAL] any signed-in user cannot change ANOTHER user\'s premium fields (branch 4 has no owner check, compiled:141)', async () => {
     await seed({ 'users/victim': userProfile('victim', { isPremium: true, premiumUntil: 1893456000000 }), 'users/u2': userProfile('u2') });

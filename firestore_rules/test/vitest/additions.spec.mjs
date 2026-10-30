@@ -76,21 +76,21 @@ describe('PLN: tyxBalance ledger design (assumed shape users/{uid}/ledger/{purpo
     ...extra,
   });
 
-  it('PLN-A1 [MUST-ALLOW design] owner lowers own balance by exactly the stored price with a matching create-only ledger doc', async () => {
+  it('PLN-A1 [LOCKED, client blocker] owner can no longer lower own balance (even with a matching ledger doc): server-only by exactly the stored price with a matching create-only ledger doc', async () => {
     await prep();
     const db = user('u1'); const b = writeBatch(db);
     b.update(doc(db, 'users/u1'), { tyxBalance: 1950 });
     b.set(doc(db, `users/u1/ledger/${ledgerId}`), entry());
-    await assertSucceeds(b.commit());
+    await assertFails(b.commit());
   });
-  planned('PLANNED PLN-01 [CRITICAL] owner cannot pay less than the stored price (balance -100 for an 18,050 booking)', async () => {
+  it('PLN-01 [CRITICAL] owner cannot pay less than the stored price (balance -100 for an 18,050 booking)', async () => {
     await prep();
     const db = user('u1'); const b = writeBatch(db);
     b.update(doc(db, 'users/u1'), { tyxBalance: 19900 });
     b.set(doc(db, `users/u1/ledger/${ledgerId}`), entry({ amount: 100, balanceAfter: 19900 }));
     await assertFails(b.commit());
   });
-  planned('PLANNED PLN-02a [CRITICAL] one ledger doc cannot be reused for a second booking (overwrite existing entry to point at req2)', async () => {
+  it('PLN-02a [CRITICAL] one ledger doc cannot be reused for a second booking (overwrite existing entry to point at req2)', async () => {
     await prep({ [`users/u1/ledger/${ledgerId}`]: entry() });
     const db = user('u1'); const b = writeBatch(db);
     b.update(doc(db, 'users/u1'), { tyxBalance: 20000 - 18050 });

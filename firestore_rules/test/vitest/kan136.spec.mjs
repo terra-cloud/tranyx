@@ -94,9 +94,9 @@ describe('KAN-136-A MUST-ALLOW: mobile job completion (job_repository.dart:590-8
     const [np, nd] = notif('poster', 'worker'); await assertSucceeds(setDoc(doc(db, np), nd));
     await assertSucceeds(deleteDoc(doc(db, 'escrow/j1')));
   });
-  it('KAN-136-01 [HIGH] hired worker completes a no-tracker job: own credit + payout_nyx_<job> (type payout, amount = price - 3%) + escrow delete + job Completed + notification', async () => {
+  it('KAN-136-01 [LOCKED, client blocker] hired worker batch that credits own tyxBalance is refused (tyxBalance is server-only; completion must move to a callable): own credit + payout_nyx_<job> (type payout, amount = price - 3%) + escrow delete + job Completed + notification', async () => {
       await base();
-      await assertSucceeds(workerSide(user('worker')).commit());
+      await assertFails(workerSide(user('worker')).commit());
     });
   it('KAN-136-02 [HIGH] payout_nyx_<job> alone, created by the hired worker for themself with the job-consistent amount', async () => {
       await base();
@@ -140,7 +140,7 @@ describe('KAN-136-D MUST-DENY: forged / foreign / replayed completions', () => {
     for (const amount of [1000000, PRICE + 1, 0, -5])
       await assertFails(setDoc(doc(user('worker'), 'transactions/payout_nyx_j1'), payoutTx({ amount })));
   });
-  planned('PLANNED KAN-136-D3 [CRITICAL] worker cannot credit own tyxBalance by more than the payout in the completion batch (own-doc update has no balance bound, compiled:187-189; =MON-01, needs KAN-126 ledger or server completion)', async () => {
+  it('KAN-136-D3 [CRITICAL] worker cannot credit own tyxBalance by more than the payout in the completion batch (own-doc update has no balance bound, compiled:187-189; =MON-01, needs KAN-126 ledger or server completion)', async () => {
     await base();
     const db = user('worker');
     const b = writeBatch(db);
@@ -163,7 +163,7 @@ describe('KAN-136-D MUST-DENY: forged / foreign / replayed completions', () => {
     await base({ status: 'Completed' }, { 'transactions/payout_nyx_j1': payoutTx() });
     await assertFails(setDoc(doc(user('poster'), 'transactions/payout_nyx_j1'), payoutTx({ amount: 1000000 })));
   });
-  planned('PLANNED KAN-136-D7 [HIGH] replay: a second completion on a Completed job cannot credit the worker again (status Completed->Completed is allowed, compiled:620-628; balance credit unbounded, compiled:187-189)', async () => {
+  it('KAN-136-D7 [HIGH] replay: a second completion on a Completed job cannot credit the worker again (status Completed->Completed is allowed, compiled:620-628; balance credit unbounded, compiled:187-189)', async () => {
     await base({ status: 'Completed' }, { 'transactions/payout_nyx_j1': payoutTx() });
     const db = user('worker');
     const b = writeBatch(db);
