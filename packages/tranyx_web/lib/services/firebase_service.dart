@@ -819,8 +819,12 @@ class FirestoreService {
 
   /// Calls a server-side money callable (booking / job / subscription flows). Adds a fresh
   /// idempotency key; reuse [idempotencyKey] when retrying the same user action.
-  Future<Map<String, dynamic>> callMoney(String name, Map<String, dynamic> data, {String? idempotencyKey}) {
-    return callCloudFunction(name, {'idempotencyKey': idempotencyKey ?? newIdempotencyKey(), ...data});
+  Future<Map<String, dynamic>> callMoney(String name, Map<String, dynamic> data, {String? idempotencyKey}) async {
+    try {
+      return await callCloudFunction(name, {'idempotencyKey': idempotencyKey ?? newIdempotencyKey(), ...data});
+    } on CloudFunctionException catch (e) {
+      throw e.forMoneyUi();
+    }
   }
 
   /// Calls an HTTPS-callable Cloud Function over the callable protocol (Firebase ID token + App Check

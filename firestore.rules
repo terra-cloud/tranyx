@@ -1336,6 +1336,13 @@ service cloud.firestore {
       allow write: if isAdminOrStaff();
     }
 
+    // settings/platform_fees: the fee rates the web/mobile apps read before showing a gig/booking total.
+    // Everything else under settings stays closed. Writes are admin/staff only (the server reads it with the Admin SDK).
+    match /settings/{docId} {
+      allow read: if isAuthenticated() && docId == 'platform_fees';
+      allow write: if isAdminOrStaff();
+    }
+
     // Platform Config Collection (Job SLAs, Platform Settings - Admin managed)
     match /platform_config/{docId} {
       allow read: if isAuthenticated();

@@ -469,6 +469,11 @@ class TranyxAppState extends State<TranyxApp> {
   List<String> jobImageUrls = [];
   bool isUploadingImages = false;
   bool isPostingJob = false;
+  /// Idempotency key of the current job-post attempt: kept while a retry could still be the same request
+  /// (network failure), cleared once the server answered definitively.
+  String? _postJobKey;
+  /// Same for hiring, per `jobId:applicantUid`.
+  final Map<String, String> _hireKeys = {};
   String? _postJobError;
   String? get postJobError => _postJobError;
   set postJobError(String? val) {
@@ -3467,7 +3472,8 @@ class TranyxAppState extends State<TranyxApp> {
 
       // Server charges the employer (price + fees recomputed from authoritative config), creates the
       // gig and its escrow in one transaction.
-      final created = await svc.callMoney('jobAction', {'action': 'create', 'job': jobData});
+      final created = await svc.callMoney('jobAction', {'action': 'create', 'job': jobData}, idempotencyKey: _postJobKey ??= newIdempotencyKey());
+      _postJobKey = null;
       final jobId = created['jobId'] as String;
       walletBalance = (created['newBalance'] as num?)?.toDouble() ?? walletBalance;
       if (userProfile != null) {
@@ -3527,6 +3533,7 @@ class TranyxAppState extends State<TranyxApp> {
       await loadJobs();
     } catch (e, st) {
       print('handlePostJob error: $e\n$st');
+      if (e is! CloudFunctionException || !e.isIndeterminate) _postJobKey = null; // answered: a new attempt is a new request
       final errStr = e.toString();
       final lowerErr = errStr.toLowerCase();
       if (lowerErr.contains('401') ||
@@ -5812,12 +5819,14 @@ class TranyxAppState extends State<TranyxApp> {
           }
         }
 
+        final hireKey = '$jobId:$applicantUid';
         final accepted = await svc.callMoney('jobAction', {
           'action': 'accept',
           'jobId': jobId,
           'applicantUid': applicantUid,
           'jobPatch': jobPatch,
-        });
+        }, idempotencyKey: _hireKeys[hireKey] ??= newIdempotencyKey());
+        _hireKeys.remove(hireKey);
         final acceptedBal = (accepted['newBalance'] as num?)?.toDouble();
         if (acceptedBal != null) {
           walletBalance = acceptedBal;
@@ -5881,6 +5890,7 @@ class TranyxAppState extends State<TranyxApp> {
       }
     } catch (e) {
       print('acceptApplicant error: $e');
+      if (e is! CloudFunctionException || !e.isIndeterminate) _hireKeys.clear();
       showAppToast('Hiring Failed', e.toString().replaceAll('Exception: ', ''));
       setState(() => isUpdatingJobStatus = false);
     }

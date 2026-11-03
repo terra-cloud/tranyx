@@ -12,6 +12,10 @@ Future<Map<String, dynamic>> callMoney(
   String name,
   Map<String, dynamic> data, {
   String? idempotencyKey,
-}) {
-  return callCloudFunction(name, {'idempotencyKey': idempotencyKey ?? newIdempotencyKey(), ...data});
+}) async {
+  try {
+    return await callCloudFunction(name, {'idempotencyKey': idempotencyKey ?? newIdempotencyKey(), ...data});
+  } on CloudFunctionException catch (e) {
+    throw e.forMoneyUi();
+  }
 }
