@@ -160,6 +160,15 @@ describe('vehicle booking', () => {
     expect((await err(bookingAction(deps(), as('renter'), { ...base, requestId: b.requestId, idempotencyKey: key(), action: 'cancelActive' })))?.code).toBe('failed-precondition');
     expect(await bal('host')).toBe(2910);
   });
+  it('an unsigned (Approved / Awaiting Signature) booking cannot be completed and paid out to the host', async () => {
+    const a = await vehicleReq();
+    const base = { kind: 'vehicle', listingId: 'v1', requestId: a.requestId };
+    for (const st of ['Approved', 'Awaiting Signature']) {
+      await db.doc(`rental_requests/${a.requestId}`).update({ status: st });
+      expect((await err(bookingAction(deps(), as('host'), { ...base, idempotencyKey: key(), action: 'complete' })))?.code).toBe('failed-precondition');
+    }
+    expect(await bal('host')).toBe(0);
+  });
   it('a stranger cannot complete, and a Pending request cannot be completed', async () => {
     const a = await vehicleReq();
     const base = { kind: 'vehicle', listingId: 'v1', requestId: a.requestId };
@@ -288,6 +297,61 @@ describe('jobs', () => {
     expect((await err(jobAction(deps(), as('worker'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: '123456' })))?.code).toBe('failed-precondition');
     expect(await bal('worker')).toBe(970);
     expect((await err(jobAction(deps(), as('employer'), { idempotencyKey: key(), action: 'cancel', jobId })))?.code).toBe('failed-precondition');
+  });
+
+  async function hiredNoLegacyCode(extra: Record<string, unknown> = {}) {
+    const r = await create(extra);
+    await db.doc(`jobs/${r.jobId}/applications/worker`).set({ applicantUid: 'worker', proposalRate: 1000, isCounterOffer: false });
+    await jobAction(deps(), as('employer'), { idempotencyKey: key(), action: 'accept', jobId: r.jobId, applicantUid: 'worker' });
+    await db.doc(`jobs/${r.jobId}`).update({ status: 'Done' });
+    return r.jobId as string;
+  }
+  const gen = (uid: string, jobId: string) => jobAction(deps(), as(uid), { idempotencyKey: key(), action: 'generateCode', jobId });
+
+  it('generateCode: the non-verifier gets a server code that never lands on the public job doc; the verifier cannot get it', async () => {
+    const jobId = await hiredNoLegacyCode(); // no tracker: employer generates, worker verifies
+    expect((await err(gen('worker', jobId)))?.code).toBe('permission-denied');
+    expect((await err(gen('other', jobId)))?.code).toBe('permission-denied');
+    const g = await gen('employer', jobId);
+    expect(g.code).toMatch(/^\d{6}$/);
+    expect((await gen('employer', jobId)).code).toBe(g.code); // stable until used / locked
+    expect((await db.doc(`jobs/${jobId}`).get()).data()).not.toHaveProperty('completionCode');
+    expect((await db.doc(`job_secrets/${jobId}`).get()).get('code')).toBe(g.code);
+    expect((await err(jobAction(deps(), as('worker'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: '000000' })))?.code).toBe('failed-precondition');
+    const done = await jobAction(deps(), as('worker'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: String(g.code) });
+    expect(done.payout).toBe(970);
+    expect((await db.doc(`job_secrets/${jobId}`).get()).exists).toBe(false);
+  });
+
+  it('generateCode with a tracker: the worker generates and the employer verifies', async () => {
+    const jobId = await hiredNoLegacyCode({ hasTracker: true });
+    expect((await err(gen('employer', jobId)))?.code).toBe('permission-denied');
+    const g = await gen('worker', jobId);
+    expect((await err(jobAction(deps(), as('worker'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: String(g.code) })))?.code).toBe('permission-denied');
+    expect((await jobAction(deps(), as('employer'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: String(g.code) })).payout).toBe(970);
+  });
+
+  it('wrong codes lock the gig after 5 tries (even the right code is refused) until a new code is generated', async () => {
+    const jobId = await hiredNoLegacyCode();
+    const g = await gen('employer', jobId);
+    for (let i = 0; i < 5; i++) {
+      expect((await err(jobAction(deps(), as('worker'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: '000000' })))?.code).toBe('failed-precondition');
+    }
+    const locked = await err(jobAction(deps(), as('worker'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: String(g.code) }));
+    expect(locked?.code).toBe('failed-precondition');
+    expect(await bal('worker')).toBe(0);
+    const fresh = await gen('employer', jobId);
+    expect((await db.doc(`job_secrets/${jobId}`).get()).get('failedAttempts')).toBe(0);
+    expect((await jobAction(deps(), as('worker'), { idempotencyKey: key(), action: 'complete', jobId, verificationCode: String(fresh.code) })).payout).toBe(970);
+  });
+
+  it('generateCode needs a hired, funded gig and strips a legacy public code', async () => {
+    const open = await create();
+    expect((await err(gen('employer', open.jobId as string)))?.code).toBe('failed-precondition');
+    const jobId = await hired(); // legacy: code on the job doc
+    const g = await gen('employer', jobId);
+    expect(g.code).not.toBe('123456');
+    expect((await db.doc(`jobs/${jobId}`).get()).data()).not.toHaveProperty('completionCode');
   });
 
   it('complete with inspection holdback pays 90% now, then worker releases the holdback after 48h', async () => {

@@ -447,6 +447,15 @@ class JobRepository {
     await jobDocRef.update(filteredUpdates);
   }
 
+  /// Asks the server for the completion code (stored in Admin-only `job_secrets`, never on the job doc).
+  /// Only the party who must hand the code over can call it; calling again returns the same code until it is used.
+  Future<String> generateCompletionCode(String jobId) async {
+    final res = await _money('jobAction', {'action': 'generateCode', 'jobId': jobId});
+    final code = res['code']?.toString() ?? '';
+    if (code.isEmpty) throw StateError('No code returned.');
+    return code;
+  }
+
   Future<void> completeJob({
     required String jobId,
     required String verificationCodeEntered,

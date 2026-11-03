@@ -20,7 +20,7 @@
           'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat',
           'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng',
           'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId',
-          'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated',
+          'acceptedApplicantName', 'receiptUrl', 'employerRated',
           'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl',
           'creatorName', 'creatorType', 'createdAt', 'updatedAt',
           'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
@@ -52,7 +52,7 @@
              before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment',
                             'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
                             'in_transit', 'arrived_dropoff', 'Done', 'done'])) &&
-          changed.hasOnly(['status', 'completionCode', 'receiptUrl', 'nyxianRated',
+          changed.hasOnly(['status', 'receiptUrl', 'nyxianRated',
                            'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'])) ||
         // 2b. SLA Expiration or Reminder update by active participants
         ((isCreator || isWorker) && before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment'] &&
@@ -60,6 +60,12 @@
         // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
         (openOrReviewing && unassigned &&
           changed.hasOnly(['applicantCount', 'applicantUids', 'recentApplicantPhotos']));
+    }
+
+    // Server-owned completion codes (jobAction generateCode / complete, Admin SDK only). Never readable or writable by a
+    // client, not even the employer: the code reaches the non-verifier through the callable response.
+    match /job_secrets/{jobId} {
+      allow read, write: if false;
     }
 
     // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)

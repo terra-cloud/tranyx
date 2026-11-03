@@ -278,7 +278,8 @@ export async function bookingAction(deps: MoneyDeps, auth: CallerAuth | undefine
       patchReq.cancelledAt = now;
     } else {
       if (!(isHost || isRentee || isStaff)) throw new HttpsError('permission-denied', 'Not your booking.');
-      if (CLOSED.includes(reqStatus) || OPEN_REQUEST.includes(reqStatus)) throw new HttpsError('failed-precondition', 'This booking cannot be completed.');
+      // An unsigned booking (Pending / Approved / Awaiting Signature) cannot be paid out to the host.
+      if (CLOSED.includes(reqStatus) || PRE_SIGN.includes(reqStatus)) throw new HttpsError('failed-precondition', 'This booking cannot be completed.');
       if (kind === 'vehicle') {
         rate = VEHICLE_COMMISSION_RATE;
         commission = round2(numOf(e.amount) * rate);

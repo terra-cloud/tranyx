@@ -1,4 +1,6 @@
+import { randomInt } from 'node:crypto';
 import { HttpsError } from 'firebase-functions/https';
+import { FieldValue } from 'firebase-admin/firestore';
 import {
   ledger, notify, numOf, parseId, parseKey, readOp, requireAuth, round2, str, Wallet, writeOp, type CallerAuth, type MoneyDeps,
 } from './money';
@@ -14,11 +16,16 @@ import { promoDiscount } from './pricing';
  *   cancel     employer, before the worker acknowledges -> full escrow (price + fees) back, once
  *   reclaim    employer, 48h stale -> refund + Abandoned;  delete  employer, open job -> refund + remove
  *   releaseHoldbacks  worker claims their own holdbacks whose releaseAt passed
+ *   generateCode      the party who does NOT verify (worker when the gig has a tracker, else the employer) gets a
+ *                     random 6-digit code kept in `job_secrets/{jobId}` (Admin SDK only, never on the public job doc);
+ *                     `complete` checks it server-side and locks after MAX_CODE_ATTEMPTS wrong tries
  * Staff arbitration (disputes, admin override cancel) stays staff-only client writes under isAdminOrStaff().
  */
 
 type Doc = Record<string, any>;
-const ACTIONS = ['create', 'accept', 'complete', 'cancel', 'reclaim', 'delete', 'releaseHoldbacks'] as const;
+const ACTIONS = ['create', 'accept', 'complete', 'cancel', 'reclaim', 'delete', 'releaseHoldbacks', 'generateCode'] as const;
+/** Wrong completion codes allowed before the code must be regenerated (blocks online guessing of a 6-digit code). */
+export const MAX_CODE_ATTEMPTS = 5;
 type Action = (typeof ACTIONS)[number];
 const HOUR = 3_600_000;
 const SERVER_JOB_KEYS = new Set([
@@ -147,6 +154,28 @@ export async function jobAction(deps: MoneyDeps, auth: CallerAuth | undefined, d
     const workerId = str(job.acceptedApplicantId ?? job.nyxianId, 128);
     const escHeld = !!esc && String(esc.status).toLowerCase() === 'held';
 
+    if (action === 'generateCode') {
+      if (!workerId || !escHeld || ['completed', 'cancelled', 'admin_cancelled', 'abandoned', 'open'].includes(status)) {
+        throw new HttpsError('failed-precondition', 'A code can only be generated for a hired, funded gig.');
+      }
+      const tracker = job.hasTracker === true || job.hasTracker === 'true';
+      if (uid !== (tracker ? workerId : employerId)) {
+        throw new HttpsError('permission-denied', tracker ? 'Only the assigned worker can generate the code.' : 'Only the employer can generate the code.');
+      }
+      const secRef = db.doc(`job_secrets/${jobId}`);
+      const sec = await tx.get(secRef);
+      let code = sec.exists ? str(sec.get('code'), 64) : '';
+      if (!code || numOf(sec.get('failedAttempts')) >= MAX_CODE_ATTEMPTS) {
+        code = String(randomInt(100_000, 1_000_000));
+        tx.set(secRef, { code, generatedBy: uid, employerId, workerId, hasTracker: tracker, createdAt: now, failedAttempts: 0 });
+      }
+      // Codes written by old clients sit on the public job doc: remove them now that the server owns the code.
+      if (job.completionCode !== undefined || job.verificationCode !== undefined) {
+        tx.update(jobRef, { completionCode: FieldValue.delete(), verificationCode: FieldValue.delete() });
+      }
+      return done({ ok: true, jobId, code });
+    }
+
     if (action === 'accept') {
       if (uid !== employerId) throw new HttpsError('permission-denied', 'Only the employer can hire.');
       if (status !== 'open') throw new HttpsError('failed-precondition', 'This gig is no longer open.');
@@ -203,8 +232,16 @@ export async function jobAction(deps: MoneyDeps, auth: CallerAuth | undefined, d
     if (action === 'complete') {
       if (status === 'completed') throw new HttpsError('failed-precondition', 'This gig is already completed.');
       if (!escHeld) throw new HttpsError('failed-precondition', 'No funds are held for this gig.');
-      const correct = str(job.completionCode ?? job.verificationCode, 64);
-      if (!correct || str(d.verificationCode, 64) !== correct) throw new HttpsError('failed-precondition', 'Invalid or expired verification code.');
+      const secRef = db.doc(`job_secrets/${jobId}`);
+      const sec = await tx.get(secRef);
+      // job_secrets first; jobs created before this change still carry the code on the job doc.
+      const correct = str((sec.exists ? sec.get('code') : undefined) ?? job.completionCode ?? job.verificationCode, 64);
+      if (numOf(sec.exists ? sec.get('failedAttempts') : 0) >= MAX_CODE_ATTEMPTS) {
+        throw new HttpsError('failed-precondition', 'Too many wrong codes. Ask the other person to generate a new code.', { code: 'CODE_LOCKED' });
+      }
+      if (!correct || str(d.verificationCode, 64) !== correct) {
+        throw new HttpsError('failed-precondition', 'Invalid or expired verification code.', { code: 'BAD_CODE' });
+      }
       if (!workerId) throw new HttpsError('failed-precondition', 'No worker is assigned to this gig.');
       const hasTracker = job.hasTracker === true || job.hasTracker === 'true';
       if (hasTracker ? uid !== employerId : uid !== workerId) {
@@ -214,6 +251,7 @@ export async function jobAction(deps: MoneyDeps, auth: CallerAuth | undefined, d
       await w.load(employerId);
       const promoCode = str(workerSnapData.activePromoCode, 40).toUpperCase();
       const promoSnap = promoCode ? await tx.get(db.doc(`promos/${promoCode}`)) : null;
+      if (sec.exists) tx.delete(secRef); // single-use; after all reads
       const price = numOf(esc!.price, numOf(job.pricingValue));
       const commissionRate = numOf(esc!.commissionRate, 0.03);
       const platformFee = round2(price * commissionRate);
@@ -331,5 +369,12 @@ export async function jobAction(deps: MoneyDeps, auth: CallerAuth | undefined, d
     });
     w.flush(workerExtra);
     return done({ ok: true, jobId, refund, newBalance: w.balance(employerId) });
+  }).catch(async (e: unknown) => {
+    // A wrong code rolls the transaction back, so the failed attempt is counted outside it.
+    if (action === 'complete' && e instanceof HttpsError && (e.details as { code?: string } | undefined)?.code === 'BAD_CODE') {
+      const jid = typeof d.jobId === 'string' ? d.jobId : '';
+      if (/^[A-Za-z0-9_-]{1,128}$/.test(jid)) await db.doc(`job_secrets/${jid}`).set({ failedAttempts: FieldValue.increment(1) }, { merge: true }).catch(() => undefined);
+    }
+    throw e;
   });
 }

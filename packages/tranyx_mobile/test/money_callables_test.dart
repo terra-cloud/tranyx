@@ -37,6 +37,19 @@ void main() {
       expect(firestore.db.keys.where((k) => k.startsWith('users/') || k.startsWith('escrow')), isEmpty);
     });
 
+    test('generateCompletionCode asks the server and writes nothing to the job doc', () async {
+      final repo = JobRepository(
+        firestore,
+        moneyCaller: (name, data) async {
+          calls.add(MapEntry(name, data));
+          return {'ok': true, 'code': '482913'};
+        },
+      );
+      expect(await repo.generateCompletionCode('j1'), '482913');
+      expect(calls.single.value, {'action': 'generateCode', 'jobId': 'j1'});
+      expect(firestore.db.keys.where((k) => k.startsWith('jobs/')), isEmpty);
+    });
+
     test('createJob never sends an id or amounts and leaves no client writes', () async {
       final repo = JobRepository(firestore, moneyCaller: fakeMoney);
       final job = Job(

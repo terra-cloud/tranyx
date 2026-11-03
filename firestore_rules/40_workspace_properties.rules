@@ -104,7 +104,9 @@
     // Property Requests Collection
     match /property_requests/{requestId} {
       allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      // Created / deleted only by the bookingRequest callable (Admin SDK) or staff. See requestPartyUpdateOk (20_workspace_rentals).
+      allow create, delete: if isAdminOrStaff();
+      allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/property_escrows/$(requestId))) || isAdminOrStaff();
     }
 
     // Property Escrows Collection (Dual-field support for renteeId & renterId)

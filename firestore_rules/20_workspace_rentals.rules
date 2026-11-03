@@ -133,9 +133,39 @@
     }
 
     // Rental Requests Collection
+    // Booking request guard (rental_requests / property_requests). The bookingRequest callable creates these docs
+    // (Admin SDK) and bookingAction settles the money from the escrow doc, but it also reads this doc's `status`.
+    // A party who could write any status could therefore park a funded booking in a closed state and block the refund
+    // or payout. Clients may only: be a party; leave the identity / money fields alone; do the legitimate
+    // transitions (host Pending->Approved, renter ->Booked once approved); and write a closing status
+    // (Rejected / Cancelled / Completed / Refunded) only while NO escrow is held (legacy no-escrow requests).
+    // Writes that leave `status` unchanged (e.g. echoing what the callable just set) stay allowed.
+    function requestPartyUpdateOk(escrowPath) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let uid = request.auth.uid;
+      let isHost = before.get('hostId', '') == uid;
+      let isRentee = before.get('renteeId', '') == uid || before.get('renterId', '') == uid;
+      let closing = ['Rejected', 'Cancelled', 'Completed', 'Refunded'];
+      let escrowHeld = exists(escrowPath) && get(escrowPath).data.get('status', '') == 'Held';
+      return (isHost || isRentee)
+        && !changed.hasAny(['renteeId', 'renterId', 'hostId', 'bookingFee', 'discountAmount', 'promoCode',
+                            'securityDepositAmount', 'baseRentAmount', 'hostCommissionRate', 'customerPlatformFeeAmount',
+                            'customerPlatformFeeRate', 'totalCustomerPaid', 'escrowStatus', 'refundAmount', 'createdAt'])
+        && (!changed.hasAny(['status']) || (
+          (after.status == 'Approved' && isHost && before.status == 'Pending') ||
+          (after.status == 'Booked' && isRentee && before.status in ['Approved', 'Awaiting Signature']) ||
+          (after.status in closing && !escrowHeld && !(before.status in closing)) ||
+          (!(after.status in closing) && !(after.status in ['Pending', 'Approved', 'Booked']) && !(before.status in closing))
+        ));
+    }
+
     match /rental_requests/{requestId} {
       allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      // Created / deleted only by the bookingRequest callable (Admin SDK) or staff.
+      allow create, delete: if isAdminOrStaff();
+      allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/rental_escrows/$(requestId))) || isAdminOrStaff();
     }
 
     // Rental Extensions Collection

@@ -6022,21 +6022,20 @@ class TranyxAppState extends State<TranyxApp> {
 
     setState(() => isGeneratingCode = true);
     try {
-      // Generate a 6-digit numeric code
-      final code = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
-
+      // The server owns the code (job_secrets, Admin SDK only): it is generated there, never written to the
+      // public job doc, and only the party who must hand it over gets it back.
       final svc = FirestoreService(token, _handleTokenRefresh);
-      await svc.createOrUpdate('jobs/$jobId', {
-        ...selectedJobData!,
-        'completionCode': code,
-      });
+      final res = await svc.callMoney('jobAction', {'action': 'generateCode', 'jobId': jobId});
+      final code = res['code']?.toString();
+      if (code == null || code.isEmpty) throw 'No code returned.';
 
       setState(() {
         generatedCompletionCode = code;
         isGeneratingCode = false;
       });
-    } catch (_) {
+    } catch (e) {
       setState(() => isGeneratingCode = false);
+      showAppToast('Could not generate code', e.toString().replaceFirst('Exception: ', ''));
     }
   }
 
@@ -6064,11 +6063,7 @@ class TranyxAppState extends State<TranyxApp> {
       final jobDoc = await svc.getDocument('jobs/${job['id']}');
 
       if (jobDoc != null) {
-        final correctCode = jobDoc['completionCode']?.toString() ?? jobDoc['verificationCode']?.toString();
-        if (completionScanInput.trim() != correctCode?.trim()) {
-          throw 'Invalid completion code. Please try again.';
-        }
-
+        // The server checks the code (it is not readable from the job doc).
         final price = (jobDoc['pricingValue'] as num?)?.toDouble() ?? 0.0;
         final nyxianId = jobDoc['acceptedApplicantId'] as String?;
 
@@ -6224,12 +6219,6 @@ class TranyxAppState extends State<TranyxApp> {
       final status = (jobDoc['status'] as String? ?? '').toLowerCase();
       if (status == 'completed') {
         throw 'This job is already completed.';
-      }
-
-      // Check verification/completion code
-      final correctCode = jobDoc['completionCode']?.toString() ?? jobDoc['verificationCode']?.toString();
-      if (code.trim() != correctCode?.trim()) {
-        throw 'Invalid or expired verification code.';
       }
 
       // Check if logged user is authorized to verify completion based on hasTracker
