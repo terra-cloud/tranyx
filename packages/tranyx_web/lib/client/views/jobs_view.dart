@@ -3318,7 +3318,8 @@ class _CreateJob extends StatelessComponent {
           [Component.text(label)],
         );
 
-    return div(classes: 'pf-pane space-y-6 animate-fade-up', [
+    return Component.fragment([
+    div(classes: 'pf-pane space-y-6 animate-fade-up', [
       subViewHeader(
         title: 'Create a job',
         subtitle: 'Post a bonded gig. Escrow locks budget + fees until completion verify.',
@@ -3417,7 +3418,91 @@ class _CreateJob extends StatelessComponent {
           Component.text(s.isPostingJob ? 'Posting...' : 'Post job & lock escrow'),
         ],
       ),
+    ]),
+      ..._aiDraftModal(s, isDark),
     ]);
+  }
+
+  /// AI job description draft modal. Rendered as a sibling of the post-job pane, not inside it: the pane is
+  /// `animate-fade-up`, whose retained `forwards` transform makes it the containing block and stacking context
+  /// for `fixed` children. Inside it the overlay was offset (blank gap on top) and the address search stacked
+  /// above it (KAN-147).
+  List<Component> _aiDraftModal(TranyxAppState s, bool isDark) {
+    return [
+    if (s.showAIDraftModal)
+      div(classes: 'rw-overlay fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
+        div(
+          classes:
+              'rw-wizard w-full max-w-md rounded-3xl overflow-hidden ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white border border-zinc-200"} shadow-2xl animate-fade-up flex flex-col',
+          [
+            div(classes: 'flex items-start justify-between p-6 pb-3', [
+              div([
+                h3(classes: 'text-lg font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('AI Job Description Draft')]),
+                p(classes: 'text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
+                  Component.text('Nyx drafted from your title + category (${s.selectedJobCategory?.label ?? "General"})'),
+                ]),
+              ]),
+              button(
+                classes: 'p-1.5 rounded-full hover:bg-zinc-500/20 transition-colors cursor-pointer',
+                attributes: {'aria-label': 'Discard draft'},
+                events: {'click': (_) => s.setState(() { s.showAIDraftModal = false; s.aiDraftPreview = ''; })},
+                [lIcon('x', cls: 'w-5 h-5 ${isDark ? "text-zinc-400" : "text-zinc-600"}')],
+              ),
+            ]),
+            div(classes: 'px-6 space-y-2', [
+              div(classes: 'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-800/50 border-zinc-700" : "bg-zinc-50 border-zinc-200"}', [
+                textarea(
+                  classes:
+                      'w-full bg-transparent border-none outline-none text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"} min-h-[140px]',
+                  attributes: {'value': s.aiDraftPreview},
+                  onInput: (val) => s.setState(() => s.aiDraftPreview = val),
+                  [Component.text(s.aiDraftPreview)],
+                ),
+              ]),
+              p(classes: 'text-[11px] pb-4 ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
+                Component.text('Edit freely before posting. AI may miss site-specific constraints.'),
+              ]),
+            ]),
+            div(classes: 'flex items-center justify-end gap-4 px-6 py-4 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
+              button(
+                classes: 'text-sm font-semibold text-indigo-500 hover:text-indigo-400 cursor-pointer flex items-center gap-1.5',
+                events: {
+                  'click': (_) async {
+                    if (s.isGeneratingDesc) return;
+                    s.setState(() => s.isGeneratingDesc = true);
+                    try {
+                      final desc = await s.generateJobDesc(s.newJobTitle, categoryLabel: s.selectedJobCategory?.label);
+                      s.setState(() { s.aiDraftPreview = desc; s.isGeneratingDesc = false; });
+                    } catch (e) {
+                      s.setState(() => s.isGeneratingDesc = false);
+                      s.alertDialog('Draft Error', e.toString().replaceAll('Exception: ', ''));
+                    }
+                  },
+                },
+                [
+                  if (s.isGeneratingDesc) lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
+                  Component.text(s.isGeneratingDesc ? 'Regenerating...' : 'Regenerate'),
+                ],
+              ),
+              button(
+                classes:
+                    'px-5 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity cursor-pointer shadow-lg shadow-indigo-500/30',
+                events: {
+                  'click': (_) {
+                    s.setState(() {
+                      s.newJobDesc = s.aiDraftPreview;
+                      s.showAIDraftModal = false;
+                      s.aiDraftPreview = '';
+                    });
+                  },
+                },
+                [Component.text('Use This Draft')],
+              ),
+            ]),
+          ],
+        ),
+      ]),
+    ];
   }
 
   Component _step1(TranyxAppState s, bool isDark) {
@@ -3510,80 +3595,6 @@ class _CreateJob extends StatelessComponent {
           ),
         ]),
       ]),
-
-      if (s.showAIDraftModal)
-        div(classes: 'rw-overlay fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm', [
-          div(
-            classes:
-                'rw-wizard w-full max-w-md rounded-3xl overflow-hidden ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white border border-zinc-200"} shadow-2xl animate-fade-up flex flex-col',
-            [
-              div(classes: 'flex items-start justify-between p-6 pb-3', [
-                div([
-                  h3(classes: 'text-lg font-bold ${isDark ? "text-white" : "text-zinc-900"}', [Component.text('AI Job Description Draft')]),
-                  p(classes: 'text-xs mt-1 ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                    Component.text('Nyx drafted from your title + category (${s.selectedJobCategory?.label ?? "General"})'),
-                  ]),
-                ]),
-                button(
-                  classes: 'p-1.5 rounded-full hover:bg-zinc-500/20 transition-colors cursor-pointer',
-                  attributes: {'aria-label': 'Discard draft'},
-                  events: {'click': (_) => s.setState(() { s.showAIDraftModal = false; s.aiDraftPreview = ''; })},
-                  [lIcon('x', cls: 'w-5 h-5 ${isDark ? "text-zinc-400" : "text-zinc-600"}')],
-                ),
-              ]),
-              div(classes: 'px-6 space-y-2', [
-                div(classes: 'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-800/50 border-zinc-700" : "bg-zinc-50 border-zinc-200"}', [
-                  textarea(
-                    classes:
-                        'w-full bg-transparent border-none outline-none text-sm ${isDark ? "text-zinc-200" : "text-zinc-800"} min-h-[140px]',
-                    attributes: {'value': s.aiDraftPreview},
-                    onInput: (val) => s.setState(() => s.aiDraftPreview = val),
-                    [Component.text(s.aiDraftPreview)],
-                  ),
-                ]),
-                p(classes: 'text-[11px] pb-4 ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
-                  Component.text('Edit freely before posting. AI may miss site-specific constraints.'),
-                ]),
-              ]),
-              div(classes: 'flex items-center justify-end gap-4 px-6 py-4 border-t ${isDark ? "border-zinc-800" : "border-zinc-200"}', [
-                button(
-                  classes: 'text-sm font-semibold text-indigo-500 hover:text-indigo-400 cursor-pointer flex items-center gap-1.5',
-                  events: {
-                    'click': (_) async {
-                      if (s.isGeneratingDesc) return;
-                      s.setState(() => s.isGeneratingDesc = true);
-                      try {
-                        final desc = await s.generateJobDesc(s.newJobTitle, categoryLabel: s.selectedJobCategory?.label);
-                        s.setState(() { s.aiDraftPreview = desc; s.isGeneratingDesc = false; });
-                      } catch (e) {
-                        s.setState(() => s.isGeneratingDesc = false);
-                        s.alertDialog('Draft Error', e.toString().replaceAll('Exception: ', ''));
-                      }
-                    },
-                  },
-                  [
-                    if (s.isGeneratingDesc) lIcon('loader-2', cls: 'w-3.5 h-3.5 animate-spin'),
-                    Component.text(s.isGeneratingDesc ? 'Regenerating...' : 'Regenerate'),
-                  ],
-                ),
-                button(
-                  classes:
-                      'px-5 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity cursor-pointer shadow-lg shadow-indigo-500/30',
-                  events: {
-                    'click': (_) {
-                      s.setState(() {
-                        s.newJobDesc = s.aiDraftPreview;
-                        s.showAIDraftModal = false;
-                        s.aiDraftPreview = '';
-                      });
-                    },
-                  },
-                  [Component.text('Use This Draft')],
-                ),
-              ]),
-            ],
-          ),
-        ]),
 
       div(classes: 'space-y-2', [
         p(classes: 'text-sm font-semibold', [Component.text('Images (Optional, Max 5)')]),
