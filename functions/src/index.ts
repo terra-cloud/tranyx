@@ -15,6 +15,7 @@ import { uploadImage, type FetchLike } from './image_upload';
 import { subscribeWithBalance as runSubscribe } from './subscribe';
 import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
 import { jobAction as runJobAction } from './jobs';
+import { staffOps as runStaffOps } from './staff_ops';
 import type { MoneyDeps } from './money';
 
 initializeApp();
@@ -233,3 +234,6 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
+
+/** Staff / P2P-agent money ops: claimWithdrawal | releaseClaim | rejectWithdrawal | approveDeposit | resolveDispute (role-checked, audited). */
+export const staffOps = onCall(moneyOpts, (req) => moneyGuard('staffOps', () => runStaffOps(moneyDeps(), caller(req), req.data, { claimsOnly: process.env.STAFF_CLAIMS_ONLY === 'true' })));
