@@ -149,7 +149,9 @@
             'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
             'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
           ])) ||
-        isAdminOrStaff()
+        // Staff may bootstrap a profile but never mint a balance: money moves only through the staffOps / money callables.
+        (isAdminOrStaff() &&
+          request.resource.data.get('tyxBalance', 0) == 0 && request.resource.data.get('reservedBalance', 0) == 0)
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
@@ -163,8 +165,9 @@
           'tyxBalance', 'reservedBalance'
         ]) && ownerPremiumNotRaised())
         || 
-        // 2. Admin / Staff: Can update admin, moderation & verification fields
-        isAdminOrStaff()
+        // 2. Admin / Staff (incl. P2P agents): admin, moderation & verification fields. NOT the balance: staff and
+        //    agents change balances only through the staffOps callable (role check, idempotency, audit log).
+        (isAdminOrStaff() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tyxBalance', 'reservedBalance']))
         ||
         // 3. Owner's pending subscription request bookkeeping (grants nothing; staff approve it)
         (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([

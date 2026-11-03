@@ -34,9 +34,10 @@ describe('MON: reservedBalance and staff still able to adjust money', () => {
     await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
     await assertSucceeds(updateDoc(doc(user('u1'), 'users/u1'), { headline: 'Plumber', skills: ['plumbing', 'tiling'] }));
   });
-  it('MON-02d [MUST-ALLOW] staff can still adjust tyxBalance (support fix)', async () => {
+  it('MON-02d [HIGH] staff / admin claim can no longer write tyxBalance from a client (staffOps callable only); other staff edits still work', async () => {
     await seed({ 'users/u1': userProfile('u1', { tyxBalance: 100 }) });
-    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/u1'), { tyxBalance: 150 }));
+    await assertFails(updateDoc(doc(adminClaim(), 'users/u1'), { tyxBalance: 150 }));
+    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/u1'), { headline: 'Verified by support' }));
   });
 });
 
