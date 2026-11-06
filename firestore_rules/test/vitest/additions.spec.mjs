@@ -59,7 +59,7 @@ describe('SYS: system_config/treasury', () => {
     await prep();
     await assertFails(getDoc(doc(user('emp', { email: 'emp@tranyx.com', email_verified: true }), 'system_config/treasury')));
   });
-  knownHole('KNOWN-HOLE SYS-04 [CRITICAL] seed.js "attacker" (unverified attacker@tranyx.com, users doc isAdmin/isP2pAgent/role admin, no claims) cannot read treasury (02_...:34-47 / compiled:85-98)', async () => {
+  it('SYS-04 [CRITICAL] users-doc isAdmin/isP2pAgent/role admin without a claim cannot read treasury', async () => {
     await prep({ 'users/attacker': { email: 'attacker@tranyx.com', isAdmin: true, isP2pAgent: true, role: 'admin' } });
     await assertFails(getDoc(doc(user('attacker', { email: 'attacker@tranyx.com', email_verified: false }), 'system_config/treasury')));
   });

@@ -19,7 +19,7 @@ import { promoDiscount } from './pricing';
  *   generateCode      the party who does NOT verify (worker when the gig has a tracker, else the employer) gets a
  *                     random 6-digit code kept in `job_secrets/{jobId}` (Admin SDK only, never on the public job doc);
  *                     `complete` checks it server-side and locks after MAX_CODE_ATTEMPTS wrong tries
- * Staff arbitration (disputes, admin override cancel) stays staff-only client writes under isAdminOrStaff().
+ * Staff arbitration and admin override cancel go through staffOps (claims, audit), not client balance writes.
  */
 
 type Doc = Record<string, any>;
