@@ -3480,7 +3480,7 @@ class TranyxAppState extends State<TranyxApp> {
         userProfile = userProfile!.copyWith(tyxBalance: walletBalance);
       }
       try {
-        await svc.awardPointsIfEligible(uid, 'post_first_service');
+        await svc.awardPointsIfEligible(uid, 'post_first_service', eventId: jobId);
       } catch (_) {}
 
       // Automatically add new job category/skills to employer's preferred skills list
@@ -5836,7 +5836,7 @@ class TranyxAppState extends State<TranyxApp> {
         }
 
         try {
-          await svc.awardPointsIfEligible(SessionStorage.uid ?? '', 'hire_applicant');
+          await svc.awardPointsIfEligible(SessionStorage.uid ?? '', 'hire_applicant', eventId: jobId);
         } catch (pointErr) {
           print('Notice awarding hire_applicant points: $pointErr');
         }
@@ -5912,7 +5912,7 @@ class TranyxAppState extends State<TranyxApp> {
         nyxianName: userProfile?.name,
       );
       try {
-        await svc.awardPointsIfEligible(uid, 'be_hired');
+        await svc.awardPointsIfEligible(uid, 'be_hired', eventId: jobId);
       } catch (pointErr) {
         print('Notice awarding be_hired points: $pointErr');
       }
@@ -6251,11 +6251,10 @@ class TranyxAppState extends State<TranyxApp> {
       });
       final nyxianPayout = ((released['payout'] as num?)?.toDouble() ?? 0.0) + ((released['holdback'] as num?)?.toDouble() ?? 0.0);
 
-      if (employerId != null) {
-        await svc.awardPointsIfEligible(employerId, 'employer_complete_transaction');
-      }
-      if (nyxianId != null) {
-        await svc.awardPointsIfEligible(nyxianId, 'jobseeker_complete_transaction');
+      if (uid == employerId) {
+        await svc.awardPointsIfEligible(uid, 'employer_complete_transaction', eventId: jobId);
+      } else if (uid == nyxianId) {
+        await svc.awardPointsIfEligible(uid, 'jobseeker_complete_transaction', eventId: jobId);
       }
 
       // Update local state

@@ -57,6 +57,8 @@ describe.each(['rental_requests', 'property_requests'])('%s reads', (col) => {
     await assertFails(getDocs(query(collection(other, col), where(listingField, '==', listingId))));
     await assertFails(getDocs(query(collection(host, col), where(listingField, '==', listingId))));
     await assertFails(getDocs(query(collection(other, col), where('hostId', '==', 'host'))));
+    await assertSucceeds(getDocs(query(collection(host, col), where('hostId', '==', 'host'), where(listingField, '==', listingId))));
+    await assertFails(getDocs(query(collection(other, col), where('hostId', '==', 'host'), where(listingField, '==', listingId))));
   });
 });
 
@@ -94,8 +96,11 @@ describe('terraPoints cannot be self-granted', () => {
     await seed({
       'users/u1': userProfile('u1', { terraPoints: 0 }),
       'users/flag': userProfile('flag', { isAdmin: true, role: 'admin' }),
+      'points_history/mine': { uid: 'u1', questId: 'register_account', points: 500 },
     });
     await assertFails(updateDoc(doc(user('flag'), 'users/u1'), { terraPoints: 500 }));
     await assertSucceeds(updateDoc(doc(adminClaim(), 'users/u1'), { terraPoints: 15 }));
+    await assertFails(setDoc(doc(user('u1'), 'points_history/h1'), { uid: 'u1', questId: 'register_account', points: 500 }));
+    await assertSucceeds(getDoc(doc(user('u1'), 'points_history/mine')));
   });
 });
