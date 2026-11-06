@@ -239,5 +239,5 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
 
-/** Staff / P2P-agent money ops: claimWithdrawal | releaseClaim | rejectWithdrawal | approveDeposit | resolveDispute (role-checked, audited). */
+/** Staff / P2P-agent money ops: claimWithdrawal | releaseClaim | rejectWithdrawal | approveDeposit | resolveDispute | adminCancelJob (claims, audited). */
 export const staffOps = onCall(moneyOpts, (req) => moneyGuard('staffOps', () => runStaffOps(moneyDeps(), caller(req), req.data, { claimsOnly: staffClaimsOnly() })));

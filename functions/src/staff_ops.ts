@@ -18,7 +18,7 @@ import {
  *   - every action writes an Admin-SDK-only `staff_audit_log/{opId}` entry (who, what, amounts, before / after)
  */
 
-const ACTIONS = ['claimWithdrawal', 'releaseClaim', 'rejectWithdrawal', 'approveDeposit', 'resolveDispute'] as const;
+const ACTIONS = ['claimWithdrawal', 'releaseClaim', 'rejectWithdrawal', 'approveDeposit', 'resolveDispute', 'adminCancelJob'] as const;
 type Action = (typeof ACTIONS)[number];
 type Doc = Record<string, any>;
 type Role = 'admin' | 'staff' | 'agent';
@@ -30,7 +30,7 @@ export const REJECTABLE = [...CLAIMABLE, 'AWAITING_AGENT_PAYMENT', 'PENDING_CONF
 const ADMIN_ROLES = ['admin', 'super_admin', 'superadmin'];
 const STAFF_ROLES = ['staff', 'support'];
 const AGENT_ROLES = ['agent', 'p2p_agent'];
-const DEPOSIT_PENDING = ['PENDING', 'PENDING_REVIEW', 'WAITING_FOR_AGENT', 'OPEN', 'REQUESTED', 'UNDER_REVIEW'];
+const DEPOSIT_PENDING = ['PENDING', 'PENDING_REVIEW', 'PENDING_VERIFICATION', 'WAITING_FOR_AGENT', 'OPEN', 'REQUESTED', 'UNDER_REVIEW'];
 
 /**
  * Claims-only unless this process is the local Functions emulator AND STAFF_CLAIMS_ONLY=false.
@@ -104,9 +104,21 @@ export function authoritativeOwner(doc: Doc, actorUid: string): string {
 function actionTarget(action: Action, d: Doc): string {
   if (action === 'approveDeposit') return `deposit:${parseId(d.depositId, 'depositId')}`;
   if (action === 'resolveDispute') return `dispute:${parseId(d.disputeId, 'disputeId')}`;
+  if (action === 'adminCancelJob') {
+    const id = parseId(d.jobId, 'jobId');
+    if (!ID_RE.test(id)) throw new HttpsError('invalid-argument', 'jobId is invalid.');
+    return `job:${id}`;
+  }
   const id = parseId(d.withdrawalId, 'withdrawalId');
   if (!ID_RE.test(id)) throw new HttpsError('invalid-argument', 'withdrawalId is invalid.');
   return `withdrawal:${id}`;
+}
+
+function assertNotPayee(actorUid: string, ...ids: string[]) {
+  const actor = canonicalOwnerId(actorUid);
+  if (ids.some((id) => id && canonicalOwnerId(id) === actor)) {
+    throw new HttpsError('permission-denied', 'You cannot move money on your own gig.', { code: 'SELF_ACTION' });
+  }
 }
 
 export interface StaffOpsOptions { claimsOnly?: boolean }
@@ -252,6 +264,57 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
       return done({ ok: true, id, status: 'APPROVED', credited: amount, newBalance: after }, { depositId: id, owner, amount, referenceNumber: ref, balanceBefore: before, balanceAfter: after });
     }
 
+    // ── admin override cancel (admin / staff only) ──────────────────────────────────────────
+    // Web adminOverrideCancelJob. Refund is the held escrow `amount` only (not pre-funded employer fees).
+    // The old client also fell back to job price − discount; that figure is not an authoritative hold, so it is not credited.
+    if (action === 'adminCancelJob') {
+      requireRole(role, ['admin', 'staff']);
+      const id = parseId(d.jobId, 'jobId');
+      const reason = str(d.reason, 500);
+      if (reason.length < 20) throw new HttpsError('invalid-argument', 'Admin override requires a justification of at least 20 characters.');
+      const jobRef = db.doc(`jobs/${id}`);
+      const escRef = db.doc(`escrow/${id}`);
+      const [jobSnap, escSnap] = await Promise.all([tx.get(jobRef), tx.get(escRef)]);
+      if (!jobSnap.exists) throw new HttpsError('not-found', 'Gig not found.');
+      const job = jobSnap.data() as Doc;
+      const esc = escSnap.exists ? escSnap.data() as Doc : undefined;
+      const employerId = str(esc?.employerId ?? esc?.creatorId ?? job.creatorId, 128);
+      const workerId = str(job.acceptedApplicantId ?? job.nyxianId, 128);
+      assertNotPayee(uid, employerId);
+      const status = String(job.status ?? '');
+      if (status.toUpperCase() === 'ADMIN_CANCELLED') {
+        return done({ ok: true, id, status, alreadyDone: true, refunded: 0 }, { jobId: id, employerId, workerId });
+      }
+      const held = !!esc && String(esc.status ?? '').toLowerCase() === 'held';
+      const refund = held ? round2(numOf(esc!.amount)) : 0;
+      const w = new Wallet(tx, db);
+      let before = 0;
+      let after = 0;
+      if (refund > 0) {
+        if (!employerId) throw new HttpsError('failed-precondition', 'The gig has no employer on record.');
+        await w.load(employerId);
+        before = w.balance(employerId);
+        w.credit(employerId, refund);
+        after = w.balance(employerId);
+        w.flush();
+        ledger(tx, db, `refund_job_${id}`, employerId, now, {
+          type: 'refund', category: 'refund', amount: refund, title: 'Job Escrow Refund (Admin Override)', status: 'Completed',
+          desc: `Escrow refund via admin override for cancelled job "${str(job.title, 80)}"`, method: 'Tranyx Escrow', originRail: 'internal_balance', jobId: id,
+        });
+      }
+      if (escSnap.exists && held) {
+        tx.set(escRef, { status: 'refunded', refundAmount: refund, refundedAt: now, refundedTo: employerId, updatedAt: now }, { merge: true });
+      }
+      tx.set(jobRef, { status: 'ADMIN_CANCELLED', updatedAt: now }, { merge: true });
+      tx.set(db.collection('job_cancellation_logs').doc(), {
+        jobId: id, adminUid: uid, cancelledBy: uid, role, action: 'ADMIN_OVERRIDE_CANCEL', status: 'ADMIN_CANCELLED',
+        reason, previousStatus: job.status ?? 'Unknown', acceptedApplicantId: workerId || null, timestamp: now,
+      });
+      if (employerId) notify(tx, db, employerId, now, 'Job Admin Cancelled', `Admin cancelled "${str(job.title, 80)}". Reason: ${reason}`, 'adm_can');
+      if (workerId) notify(tx, db, workerId, now, 'Gig Cancelled by Admin', `Admin has cancelled job "${str(job.title, 80)}". Reason: ${reason}`, 'adm_can_w');
+      return done({ ok: true, id, status: 'ADMIN_CANCELLED', refunded: refund }, { jobId: id, employerId, workerId, amount: refund, reason, balanceBefore: before, balanceAfter: after });
+    }
+
     // ── dispute arbitration (admin / staff only) ────────────────────────────────────────────
     requireRole(role, ['admin', 'staff']);
     const id = parseId(d.disputeId, 'disputeId');
@@ -267,11 +330,12 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
     const jobRef = db.doc(`jobs/${jobId}`);
     const escRef = db.doc(`escrow/${jobId}`);
     const [jobSnap, escSnap] = await Promise.all([tx.get(jobRef), tx.get(escRef)]);
+    // Parties come from the escrow + job docs: the dispute doc is client-created and not trusted.
+    const employerId = str(escSnap.get('employerId') ?? escSnap.get('creatorId') ?? jobSnap.get('creatorId'), 128);
+    const nyxianId = str(jobSnap.get('acceptedApplicantId'), 128);
+    assertNotPayee(uid, employerId, nyxianId);
     if (String(disp.status ?? '').toUpperCase() === 'RESOLVED') return done({ ok: true, id, alreadyDone: true }, { disputeId: id, jobId });
     if (!escSnap.exists || String(escSnap.get('status') ?? '').toLowerCase() !== 'held') throw new HttpsError('failed-precondition', 'No funds are held for this gig.');
-    // Parties and amount come from the escrow + job docs: the dispute doc is client-created and not trusted.
-    const employerId = str(escSnap.get('employerId') ?? escSnap.get('creatorId'), 128);
-    const nyxianId = str(jobSnap.get('acceptedApplicantId'), 128);
     const escrowAmount = round2(numOf(escSnap.get('amount')));
     let refundToEmployer = 0;
     let payoutToNyxian = 0;

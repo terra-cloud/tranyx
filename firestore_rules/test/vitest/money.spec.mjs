@@ -165,8 +165,8 @@ describe('MON: withdrawal request lock after create', () => {
     for (const type of ['withdraw', 'WITHDRAWAL', 'withdrawal', 'WITHDRAW'])
       await assertFails(setDoc(doc(user('u1'), 'transactions/wd_forged'), { uid: 'u1', type, amount: -500, status: 'Successful', createdAt: 1 }));
   });
-  it('MON-WR0e [KAN-146] admin/staff (and the Admin SDK) can still create requests', async () => {
-    await assertSucceeds(setDoc(doc(adminClaim(), 'withdrawal_requests/wrAdmin'), withdrawal('u1')));
+  it('MON-WR0e [KAN-146] even an admin claim cannot create a withdrawal request from a client', async () => {
+    await assertFails(setDoc(doc(adminClaim(), 'withdrawal_requests/wrAdmin'), withdrawal('u1')));
   });
   it('MON-WR0b [MUST-ALLOW] owner can read own withdrawal request', async () => {
     await prep();

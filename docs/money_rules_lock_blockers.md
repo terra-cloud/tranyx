@@ -98,9 +98,19 @@ Nothing here was deployed. Rules are compiled from `firestore_rules/*.rules` int
 
 `tranyx-app` is the production Firebase project for public web and mobile. `tranyx-dev` and `tranyx-uat` are the other workspace projects. `tranyx-admin` is a separate Firebase project used by the admin client; it is connected to those workspace projects and is not one of them. App Check and Auth tokens are project-scoped. Registering the admin app, or holding an admin-project App Check token, does not make that token valid for the workspace project the desk has selected. Callables keep `ENFORCE_APP_CHECK` defaulting on and do not treat an admin UI session as a substitute for the selected project's Auth token and App Check token. Prod is registered only as the prod workspace project among prod / dev / UAT. This patch does not change live App Check config.
 
-### Still open (next release-blocker batches, not in this patch)
+### Web staff money calls (not deployed)
 
-- No `staffOps` action for proof, finalize, or manual payout completion. Web still writes those itself: `FirebaseService.submitWithdrawalProof`, `confirmP2pWithdrawalCompleted`, plus the direct balance writers `approveDepositRequest`, `rejectP2pWithdrawalOrder`, `resolveDispute` (three variants), and `adminOverrideCancelJob`.
+`approveDepositRequest`, `rejectP2pWithdrawalOrder`, `resolveDispute`, and `adminOverrideCancelJob` call `staffOps`. They no longer write balances, escrow, or money statuses from the browser. `adminCancelJob` refunds a held escrow `amount` only (not employer fees) and sets the gig `ADMIN_CANCELLED`. A missing escrow is not invented from the job price. `PENDING_VERIFICATION` is an approve-able deposit status because that is the status the web proof step already writes. Split disputes with no percents still send 50/50, the previous client default.
+
+Claim provisioning, later, by an owner with the Admin SDK (this repo does not mint claims):
+
+- `admin` / `superadmin` (or `role` admin) to read `system_config`, write `p2p_agents`, and edit privilege fields.
+- `role` admin or staff for `resolveDispute` and `adminCancelJob`. `role` agent may claim and record payout proof, and may `approveDeposit` / `rejectWithdrawal`, but cannot client-approve or client-reject a withdrawal and cannot read treasury.
+- A `users` flag or an active `p2p_agents` doc does not grant any of that.
+
+## Still open (next release-blocker batches, not in this patch)
+
+- No `staffOps` action for proof, finalize, or manual payout completion. Web still writes those itself: `FirebaseService.submitWithdrawalProof` and `confirmP2pWithdrawalCompleted`. Claim staff may still record a claim or proof on `withdrawal_requests`; approve, reject, and the balance stay on `staffOps`.
 - `rental_requests` and `property_requests` `allow read: if isAuthenticated()` (`firestore_rules/20_workspace_rentals.rules`, `40_workspace_properties.rules`). Any signed-in user can read every request, not only the renter and host.
 - `users.terraPoints` is owner-writable (not in the locked field list). Web `awardPointsIfEligible` in `firebase_service.dart` adds points from the client.
-- `isAdminOrStaff()` still trusts users-doc flags and `p2p_agents.isActive` for non-privilege desk access. Known holes that depend on that (treasury read, client withdrawal approval, writing `p2p_agents`) stay marked and are not counted as fixed.
+- `isAdminOrStaff()` still trusts users-doc flags and `p2p_agents.isActive` for non-money desk access (support chats, moderation). It does not authorize treasury reads, `p2p_agents` writes, withdrawal approval, or escrow money fields.
