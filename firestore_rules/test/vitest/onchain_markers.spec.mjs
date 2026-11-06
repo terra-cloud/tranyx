@@ -44,10 +44,11 @@ describe('on-chain credit markers (transactions)', () => {
       await assertFails(updateDoc(doc(user('u1'), `transactions/${id}`), { amount: 999999 }));
       await assertFails(setDoc(doc(user('u1'), `transactions/${id}`), { ...data, amount: 999999 }));
     });
-    it(`OC [MUST-ALLOW] admin/staff can still create and update ${short}…`, async () => {
+    it(`OC [HIGH] admin/staff client cannot create or update ${short}… (creditOnchainPayment writes it)`, async () => {
       await seedUser();
-      await assertSucceeds(setDoc(doc(adminClaim(), `transactions/${id}`), data));
-      await assertSucceeds(updateDoc(doc(adminClaim(), `transactions/${id}`), { note: 'support fix' }));
+      await assertFails(setDoc(doc(adminClaim(), `transactions/${id}`), data));
+      await seed({ [`transactions/${id}`]: data });
+      await assertFails(updateDoc(doc(adminClaim(), `transactions/${id}`), { note: 'support fix' }));
     });
     it(`OC [HIGH] B cannot get A's ${short}…`, async () => {
       await seedUser();

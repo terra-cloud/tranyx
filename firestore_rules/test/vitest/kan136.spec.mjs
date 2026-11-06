@@ -98,9 +98,9 @@ describe('KAN-136-A MUST-ALLOW: mobile job completion (job_repository.dart:590-8
       await base();
       await assertFails(workerSide(user('worker')).commit());
     });
-  it('KAN-136-02 [HIGH] payout_nyx_<job> alone, created by the hired worker for themself with the job-consistent amount', async () => {
+  it('KAN-136-02 [HIGH] the hired worker cannot client-create payout_nyx_ (jobAction complete writes it)', async () => {
       await base();
-      await assertSucceeds(setDoc(doc(user('worker'), 'transactions/payout_nyx_j1'), payoutTx()));
+      await assertFails(setDoc(doc(user('worker'), 'transactions/payout_nyx_j1'), payoutTx()));
     });
   plannedAllow('PLANNED KAN-136-P1 [HIGH] the exact mobile transaction as the worker (adds fees_emp_<job> uid=employer type fee_deduction + platform_fees/<job>): needs server-side completion (compiled:291 / platform_fees compiled:1144)',
     /L\d+/, async () => {
@@ -196,7 +196,7 @@ describe('KAN-136-D MUST-DENY: forged / foreign / replayed completions', () => {
     }
     await assertSucceeds(setDoc(doc(db, 'transactions/note_worker_1'), { uid: 'worker', type: 'payment', amount: 1, status: 'Completed', createdAt: now() }));
     await assertSucceeds(setDoc(doc(db, 'wallets/worker/transactions/note'), { type: 'deposit', amount: 1 }));
-    await assertSucceeds(setDoc(doc(db, 'transactions/payout_nyx_j1'), payoutTx()));
+    await assertFails(setDoc(doc(db, 'transactions/payout_nyx_j1'), payoutTx()));
     await assertFails(updateDoc(doc(db, 'transactions/note_worker_1'), { type: 'Payout', amount: 1000000 }));
   });
   it('KAN-136-09 [HIGH] hired worker cannot delete the job escrow unless the same write completes the job', async () => {

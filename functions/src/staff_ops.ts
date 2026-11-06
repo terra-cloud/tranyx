@@ -18,7 +18,7 @@ import {
  *   - every action writes an Admin-SDK-only `staff_audit_log/{opId}` entry (who, what, amounts, before / after)
  */
 
-const ACTIONS = ['claimWithdrawal', 'releaseClaim', 'rejectWithdrawal', 'approveDeposit', 'resolveDispute', 'adminCancelJob'] as const;
+const ACTIONS = ['claimWithdrawal', 'releaseClaim', 'rejectWithdrawal', 'submitWithdrawalProof', 'createManualWithdrawal', 'approveDeposit', 'resolveDispute', 'adminCancelJob'] as const;
 type Action = (typeof ACTIONS)[number];
 type Doc = Record<string, any>;
 type Role = 'admin' | 'staff' | 'agent';
@@ -104,6 +104,7 @@ export function authoritativeOwner(doc: Doc, actorUid: string): string {
 function actionTarget(action: Action, d: Doc): string {
   if (action === 'approveDeposit') return `deposit:${parseId(d.depositId, 'depositId')}`;
   if (action === 'resolveDispute') return `dispute:${parseId(d.disputeId, 'disputeId')}`;
+  if (action === 'createManualWithdrawal') return `manual:${parseId(d.targetUserId, 'targetUserId')}`;
   if (action === 'adminCancelJob') {
     const id = parseId(d.jobId, 'jobId');
     if (!ID_RE.test(id)) throw new HttpsError('invalid-argument', 'jobId is invalid.');
@@ -121,7 +122,74 @@ function assertNotPayee(actorUid: string, ...ids: string[]) {
   }
 }
 
-export interface StaffOpsOptions { claimsOnly?: boolean }
+export interface StaffOpsOptions {
+  claimsOnly?: boolean;
+  /**
+   * Production wires this to `processWithdrawal` for the target uid.
+   * Fee, net, wallet, and the Solana send stay in that function. Tests pass a fake.
+   */
+  createWithdrawal?: (targetUid: string, data: Record<string, unknown>) => Promise<Record<string, unknown>>;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SETTLED_WITHDRAWAL = ['APPROVED', 'REJECTED', 'CANCELLED', 'COMPLETED'];
+
+/**
+ * Staff Solana withdrawal for someone else. Debit, fee, verified wallet, and the send are
+ * `createWithdrawal` (processWithdrawal). This wrapper only authorizes the staff actor,
+ * refuses self-approval and disagreeing owner aliases, and audits after a successful debit.
+ * P2P is refused: there is no verified GCash/Maya identity to pay.
+ */
+async function createStaffSolanaWithdrawal(
+  deps: MoneyDeps, auth: CallerAuth | undefined, d: Doc, uid: string, key: string, target: string, opts: StaffOpsOptions,
+) {
+  const { db } = deps;
+  const now = deps.now();
+  const owner = authoritativeOwner({
+    uid: d.uid ?? d.targetUserId,
+    userId: d.userId ?? d.targetUserId,
+    ownerId: d.ownerId,
+    targetUserId: d.targetUserId,
+  }, uid);
+  if (owner !== parseId(d.targetUserId, 'targetUserId')) {
+    throw new HttpsError('failed-precondition', 'The request owner is inconsistent.', { code: 'OWNER_MISMATCH' });
+  }
+  if (d.method !== 'solana') {
+    throw new HttpsError('failed-precondition', 'Staff can only create a Solana withdrawal to the recipient\'s verified wallet. P2P cashouts are requested by the account owner.');
+  }
+  if (!UUID_RE.test(key)) throw new HttpsError('invalid-argument', 'idempotencyKey must be a UUID.');
+  if (!opts.createWithdrawal) throw new HttpsError('failed-precondition', 'Withdrawal creation is not available.');
+  const [userSnap, agentSnap, opSnap] = await Promise.all([
+    db.doc(`users/${uid}`).get(), db.doc(`p2p_agents/${uid}`).get(), db.doc(`money_ops/${uid}_${key}`).get(),
+  ]);
+  const role = requireRole(staffRole(auth?.token, userSnap.data(), agentSnap.data(), opts.claimsOnly ?? true), ['admin', 'staff']);
+  if (opSnap.exists) {
+    const storedAction = opSnap.get('action');
+    const storedTarget = opSnap.get('target');
+    if (storedAction !== 'staff:createManualWithdrawal' || storedTarget !== target) {
+      throw new HttpsError('already-exists', 'This idempotency key was already used for a different operation.', { code: 'IDEMPOTENCY_MISMATCH' });
+    }
+    return { ...(opSnap.get('result') as Record<string, unknown>), replay: true };
+  }
+  const result = await opts.createWithdrawal(owner, {
+    idempotencyKey: key,
+    method: 'solana',
+    amount: d.amount,
+    coin: d.coin,
+  });
+  const opId = `${uid}_${key}`;
+  await db.runTransaction(async (tx) => {
+    const again = await tx.get(db.doc(`money_ops/${uid}_${key}`));
+    if (again.exists) return;
+    const staffName = str(userSnap.get('name'), 80) || str(auth?.token?.email, 80) || uid;
+    writeOp(tx, db, uid, key, 'staff:createManualWithdrawal', result, now, target);
+    audit(tx, db, opId, now, {
+      action: 'createManualWithdrawal', actorUid: uid, actorName: staffName, actorRole: role,
+      targetUserId: owner, amount: result.amount ?? null, coin: d.coin ?? null, result,
+    });
+  });
+  return result;
+}
 
 export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, data: unknown, opts: StaffOpsOptions = {}) {
   const uid = requireAuth(auth);
@@ -134,6 +202,10 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
   const now = deps.now();
   const opId = `${uid}_${key}`;
   const claimsOnly = opts.claimsOnly ?? true;
+
+  if (action === 'createManualWithdrawal') {
+    return createStaffSolanaWithdrawal(deps, auth, d, uid, key, target, opts);
+  }
 
   return db.runTransaction(async (tx) => {
     const replay = await readOpMeta(tx, db, uid, key);
@@ -224,6 +296,65 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
       );
       notify(tx, db, owner, now, 'Cashout Request Rejected', `Your ₱${amount.toFixed(2)} cashout was rejected: ${reason}. ${note}`, 'p2p_reject');
       return done({ ok: true, id, status: 'REJECTED', refunded: refund ? round2(amount) : 0 }, { withdrawalId: id, owner, amount, reason, balanceBefore: before, balanceAfter: after, refunded: refund });
+    }
+
+    // Recorded agent proof. Not a chain verification and not a settlement: no debit, credit, or send.
+    if (action === 'submitWithdrawalProof') {
+      requireRole(role, ['admin', 'staff', 'agent']);
+      const id = parseId(d.withdrawalId, 'withdrawalId');
+      if (!ID_RE.test(id)) throw new HttpsError('invalid-argument', 'withdrawalId is invalid.');
+      const referenceNumber = str(d.referenceNumber, 64);
+      const proofImageUrl = str(d.proofImageUrl, 500);
+      if (!referenceNumber) throw new HttpsError('invalid-argument', 'Reference number is required.');
+      if (!/^https:\/\//i.test(proofImageUrl)) throw new HttpsError('invalid-argument', 'Payment receipt URL must be https.');
+      const reqRef = db.doc(`withdrawal_requests/${id}`);
+      const mirrors = [db.doc(`withdrawalRequests/${id}`), db.doc(`withdrawals/${id}`)];
+      const [reqSnap, ...mirrorSnaps] = await Promise.all([tx.get(reqRef), ...mirrors.map((m) => tx.get(m))]);
+      const cur = reqSnap.data();
+      if (!cur) throw new HttpsError('not-found', 'Withdrawal request not found.');
+      if (String(cur.method ?? '').toLowerCase() === 'solana' || cur.payoutMethod === 'Solana') {
+        throw new HttpsError('failed-precondition', 'Solana withdrawals are processed automatically.');
+      }
+      const owner = authoritativeOwner(cur, uid);
+      const status = String(cur.status ?? '').toUpperCase();
+      const agentId = str(cur.agentId, 128);
+      const amount = numOf(cur.amount);
+      if (SETTLED_WITHDRAWAL.includes(status) || cur.payoutState === 'sent' || cur.payoutState === 'failed') {
+        throw new HttpsError('failed-precondition', 'This cashout is already settled.', { code: 'SETTLED' });
+      }
+      if (status === 'PENDING_CONFIRMATION') {
+        if (str(cur.referenceNumber, 64) === referenceNumber && str(cur.proofImageUrl, 500) === proofImageUrl) {
+          return done({ ok: true, id, status, alreadyDone: true, verifiedPayment: false }, { withdrawalId: id, owner, amount, referenceNumber });
+        }
+        throw new HttpsError('failed-precondition', 'Proof is already on this cashout and cannot be replaced.', { code: 'PROOF_FROZEN' });
+      }
+      if (status !== 'AWAITING_AGENT_PAYMENT') {
+        throw new HttpsError('failed-precondition', 'Claim the cashout before submitting proof.', { code: 'NOT_CLAIMED', status });
+      }
+      if (!agentId || agentId !== uid) {
+        throw new HttpsError('permission-denied', 'Only the agent who claimed this cashout can submit proof.', { code: 'CLAIMED_BY_OTHER' });
+      }
+      const txMain = db.doc(`transactions/p2p_with_${id}`);
+      const txWallet = db.doc(`wallets/${owner}/transactions/${id}`);
+      const [txMainSnap, txWalletSnap] = await Promise.all([tx.get(txMain), owner ? tx.get(txWallet) : Promise.resolve(null)]);
+      const patch = {
+        status: 'PENDING_CONFIRMATION', p2pStatus: 'PENDING_CONFIRMATION', referenceNumber, proofImageUrl,
+        proofSubmittedAt: now, updatedAt: now,
+      };
+      const ledgerPatch = {
+        status: 'PENDING_CONFIRMATION', referenceNumber, proofImageUrl, updatedAt: now,
+        desc: `Agent submitted a payment reference (${referenceNumber}). This is not a verified chain payment. Awaiting your confirmation.`,
+      };
+      tx.set(reqRef, patch, { merge: true });
+      mirrorSnaps.forEach((s, i) => { if (s.exists) tx.set(mirrors[i], patch, { merge: true }); });
+      if (txMainSnap.exists) tx.set(txMain, ledgerPatch, { merge: true });
+      if (txWalletSnap?.exists) tx.set(txWallet, ledgerPatch, { merge: true });
+      if (owner) {
+        notify(tx, db, owner, now, 'Payout Sent — Please Confirm Receipt',
+          `Your agent submitted reference ${referenceNumber}. Check your ${cur.paymentMethod ?? 'account'} and confirm only if the money arrived. This is not an on-chain verification.`,
+          'p2p_proof');
+      }
+      return done({ ok: true, id, status: 'PENDING_CONFIRMATION', verifiedPayment: false }, { withdrawalId: id, owner, amount, referenceNumber });
     }
 
     // ── manual P2P deposit approval ─────────────────────────────────────────────────────────

@@ -742,7 +742,7 @@ describe('KAN-146 withdraw callable core', () => {
     it('confirm: only after the agent sent proof; idempotent; cannot cancel afterwards; notifies', async () => {
       const id = await p2pReq(100);
       expect((await err(act(id, 'confirm')))?.code).toBe('failed-precondition');
-      await setReq(id, { status: 'PENDING_CONFIRMATION', referenceNumber: 'ABC123' });
+      await setReq(id, { status: 'PENDING_CONFIRMATION', referenceNumber: 'ABC123', proofImageUrl: 'https://example.invalid/proof.webp' });
       const r: any = await act(id, 'confirm');
       expect(r).toMatchObject({ ok: true, status: 'APPROVED', alreadyDone: false });
       const d = await reqDoc(id);
@@ -753,6 +753,25 @@ describe('KAN-146 withdraw callable core', () => {
       expect(await bal()).toBe(900); // no refund
       const notes = await db.collection('notifications').where('type', '==', 'withdrawal_completed').get();
       expect(notes.size).toBe(1);
+    });
+
+    it('confirm refuses a status flip that has no https proof, and does not refund', async () => {
+      const id = await p2pReq(100);
+      await setReq(id, { status: 'PENDING_CONFIRMATION', referenceNumber: 'ABC123' });
+      const e = await err(act(id, 'confirm'));
+      expect(e?.code).toBe('failed-precondition');
+      expect((await reqDoc(id)).status).toBe('PENDING_CONFIRMATION');
+      expect(await bal()).toBe(900);
+    });
+
+    it('disagreeing owner aliases are refused with no status change', async () => {
+      const id = await p2pReq(100);
+      await setReq(id, { status: 'PENDING_CONFIRMATION', referenceNumber: 'ABC123', proofImageUrl: 'https://example.invalid/p.webp', userId: 'user2' });
+      const e = await err(act(id, 'confirm'));
+      expect(e?.code).toBe('failed-precondition');
+      expect(e?.details?.code).toBe('OWNER_MISMATCH');
+      expect((await reqDoc(id)).status).toBe('PENDING_CONFIRMATION');
+      expect(await bal()).toBe(900);
     });
   });
 
