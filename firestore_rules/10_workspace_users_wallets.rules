@@ -421,6 +421,6 @@
 
     // Points History Collection
     match /points_history/{historyId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow write: if (isActiveUser() && request.resource.data.uid == request.auth.uid) || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isClaimStaff());
+      allow write: if false;
     }
