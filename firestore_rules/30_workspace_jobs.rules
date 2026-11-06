@@ -150,14 +150,16 @@
         isAdminOrStaff()
       );
       // Phase 4: gig escrow holds real money; only the jobAction callable (Admin SDK) and staff write it.
-      allow create, update, delete: if isAdminOrStaff();
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
       // Phase 4: holdbacks are created at completion and released by jobAction (Admin SDK); staff only from clients.
-      allow create, update, delete: if isAdminOrStaff();
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Job Cancellation Audit Logs Collection

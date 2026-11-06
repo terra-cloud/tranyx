@@ -2,10 +2,11 @@
     // ADMIN PORTAL OPERATIONS, P2P DESK & SYSTEM CONFIGURATION
     // ------------------------------------------------------------------------
 
-    // P2P Agents Collection (Publicly readable verified agent QR credentials)
+    // P2P Agents Collection. Public read of QR credentials. Creating or editing an agent is an admin claim,
+    // not a users-doc flag and not an existing agent document.
     match /p2p_agents/{agentId} {
       allow read: if true;
-      allow write: if isAdminOrStaff();
+      allow write: if isClaimAdmin();
     }
 
     // Unified Requests Collection (Admin Portal: Enforces 3-Min Claim Limit & Single-Agent Lock)
@@ -70,10 +71,10 @@
 
     // System Config Collection (Treasury keys and backend config - Admin only!)
     match /system_config/{docId} {
-      allow read, write: if isAdminOrStaff();
+      allow read, write: if isClaimAdmin();
     }
     match /system_config/{docId}/{subPath=**} {
-      allow read, write: if isAdminOrStaff();
+      allow read, write: if isClaimAdmin();
     }
 
     // Config Collection. Clients only read config/app_config; third-party API docs (e.g. config/imgbb) are admin only.

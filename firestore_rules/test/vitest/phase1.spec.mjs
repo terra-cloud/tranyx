@@ -41,7 +41,7 @@ describe('P1-WR: owner withdrawal flows that stay allowed', () => {
     const db = adminClaim();
     await assertSucceeds(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'AWAITING_AGENT_PAYMENT', agentId: 'realAdmin', claimedAt: NOW }));
     await assertSucceeds(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'PENDING_CONFIRMATION', proofImageUrl: 'https://example.invalid/p.webp' }));
-    await assertSucceeds(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'REJECTED', amount: 500 }));
+    await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'REJECTED', amount: 500 }));
   });
 });
 
@@ -53,8 +53,8 @@ describe('P1-MON: legacy money + reference collections (admin panel only writes)
       await seed({ [`${col}/r1`]: rec });
       await assertSucceeds(getDoc(doc(user('u1'), `${col}/r1`)));
       await assertSucceeds(getDoc(doc(adminClaim(), `${col}/r1`)));
-      await assertSucceeds(setDoc(doc(adminClaim(), `${col}/r2`), { ...rec, approvedBy: 'realAdmin' }));
-      await assertSucceeds(setDoc(doc(adminClaim(), `${col}/r1`), { status: 'APPROVED' }, { merge: true }));
+      await assertFails(setDoc(doc(adminClaim(), `${col}/r2`), { ...rec, approvedBy: 'realAdmin' }));
+      await assertFails(setDoc(doc(adminClaim(), `${col}/r1`), { status: 'APPROVED' }, { merge: true }));
     });
     it(`P1-MON-02-${col} [HIGH] ordinary user cannot create a ${col} doc, even for themselves`, async () => {
       await assertFails(setDoc(doc(user('u1'), `${col}/new1`), rec));
