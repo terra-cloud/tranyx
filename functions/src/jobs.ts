@@ -305,7 +305,10 @@ export async function jobAction(deps: MoneyDeps, auth: CallerAuth | undefined, d
         });
       }
       tx.update(escRef, { status: 'released', releasedAt: now, releasedTo: workerId, payout: immediate, updatedAt: now });
-      tx.update(jobRef, { status: 'Completed', updatedAt: now });
+      tx.update(jobRef, {
+        status: 'Completed', updatedAt: now,
+        completionCode: FieldValue.delete(), verificationCode: FieldValue.delete(),
+      });
       notify(tx, db, uid === employerId ? workerId : employerId, now, 'Gig Completed', `Gig "${str(job.title, 80)}" was marked complete.`, jobId.slice(-6));
       w.flush({ [workerId]: workerPatch });
       return done({ ok: true, jobId, payout: immediate, holdback, commission: actualFee, newBalance: w.balance(uid) });

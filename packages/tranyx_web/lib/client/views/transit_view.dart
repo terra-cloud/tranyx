@@ -2131,7 +2131,7 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
       for (final item in items) {
         final counterpartyUid = _counterpartyUid(item, uid);
         if (counterpartyUid != null && !_counterpartyCache.containsKey(counterpartyUid)) {
-          _counterpartyCache[counterpartyUid] = await component.state.firestore.getUser(counterpartyUid);
+          _counterpartyCache[counterpartyUid] = await component.state.firestore.getPublicProfile(counterpartyUid);
         }
       }
       setState(() {
@@ -2314,8 +2314,6 @@ class _RentalHistoryViewState extends State<_RentalHistoryView> {
                 if (serviceRating != null) _starDisplay(serviceRating, 'Service'),
               ]),
               div(classes: 'flex flex-wrap gap-1.5 mt-2', [
-                if (profile.idVerified) _pill('ID Verified', 'bg-blue-500/20 text-blue-400'),
-                if (profile.bgChecked) _pill('BG Checked', 'bg-emerald-500/20 text-emerald-400'),
                 if (profile.isPremium) _pill('Premium', 'bg-amber-500/20 text-amber-500'),
               ]),
             ],

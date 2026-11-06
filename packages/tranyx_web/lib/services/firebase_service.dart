@@ -970,8 +970,67 @@ class FirestoreService {
   );
 
   // ── Users ──────────────────────────────────────────────────
+  /// Fields a counterparty may see. Email, phone, wallet, balances, KYC, and
+  /// verification flags stay on users/{uid}. idVerified is not a public trust signal.
+  static const publicProfileKeys = [
+    'uid',
+    'name',
+    'displayName',
+    'photoUrl',
+    'profile_photo',
+    'headline',
+    'about',
+    'accountType',
+    'skills',
+    'hourlyRate',
+    'businessName',
+    'industry',
+    'createdAt',
+    'updatedAt',
+    'rating',
+    'ratingCount',
+    'isPremium',
+  ];
+
+  Map<String, dynamic> publicProfileFrom(String uid, Map data) {
+    final out = <String, dynamic>{'uid': uid};
+    for (final key in publicProfileKeys) {
+      if (key == 'uid') continue;
+      final value = data[key];
+      if (value != null) out[key] = value;
+    }
+    return out;
+  }
+
+  Future<void> _syncPublicProfile(String uid, Map data) async {
+    if (uid != _authUid) return;
+    try {
+      await createOrUpdate('public_profiles/$uid', publicProfileFrom(uid, data));
+    } catch (_) {}
+  }
+
   Future<UserProfile?> getUser(String uid) async {
     final data = await getDocument('users/$uid');
+    if (data == null) return null;
+    await _syncPublicProfile(uid, data);
+    return UserProfile.fromMap(uid, data);
+  }
+
+  /// Counterparty card. Own profile is published from the private doc on read.
+  /// Never returns email, phone, wallet, balance, or verification flags.
+  Future<Map<String, dynamic>?> getPublicProfileMap(String uid) async {
+    final existing = await getDocument('public_profiles/$uid');
+    if (existing != null) return publicProfileFrom(uid, existing);
+    if (uid != _authUid) return null;
+    final own = await getDocument('users/$uid');
+    if (own == null) return null;
+    final projected = publicProfileFrom(uid, own);
+    await _syncPublicProfile(uid, own);
+    return projected;
+  }
+
+  Future<UserProfile?> getPublicProfile(String uid) async {
+    final data = await getPublicProfileMap(uid);
     if (data == null) return null;
     return UserProfile.fromMap(uid, data);
   }
@@ -1037,7 +1096,9 @@ class FirestoreService {
   }
 
   Future<void> saveUser(UserProfile profile) async {
-    await createOrUpdate('users/${profile.uid}', profile.toMap());
+    final data = profile.toMap();
+    await createOrUpdate('users/${profile.uid}', data);
+    await _syncPublicProfile(profile.uid, data);
   }
 
   // ── KYC Submissions ────────────────────────────────────────
@@ -2594,8 +2655,6 @@ class FirestoreService {
 
     final rental = VehicleRental.fromMap(rentalDoc, actualRentalId);
     final hostId = (bookingDoc?['hostId'] ?? rental.hostId) as String;
-    final host = await getUser(hostId);
-    if (host == null) throw Exception('Host profile not found.');
 
     final payoutRes = await callMoney('bookingAction', {
       'kind': 'vehicle',
@@ -2734,24 +2793,15 @@ class FirestoreService {
       throw Exception('Selected dates overlap with an existing confirmed rental.');
     }
 
-    final rentee = await getUser(renteeId);
-    if (rentee == null) throw Exception('Renter profile not found.');
+    if (await getUser(renteeId) == null) throw Exception('Renter profile not found.');
 
-    final hostUser = await getUser(rental.hostId);
-    final hostIsVerified = hostUser != null
-        ? (hostUser.idVerified || hostUser.verificationLevel >= 2)
-        : (rental.hostIsVerified ?? (rental.hostVerificationStatus == 'VERIFIED'));
-    final hostVerificationTier = hostUser != null
-        ? PartyVerificationHelper.formatVerificationTier(level: hostUser.verificationLevel, idVerified: hostUser.idVerified)
-        : (rental.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None'));
+    // Listing-published host flags only. users.idVerified is owner-writable and is not a trust signal.
+    final hostIsVerified = rental.hostIsVerified ?? (rental.hostVerificationStatus == 'VERIFIED');
+    final hostVerificationTier = rental.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None');
     final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
-
-    final renteeIsVerified = rentee.idVerified || rentee.verificationLevel >= 2;
-    final renteeVerificationTier = PartyVerificationHelper.formatVerificationTier(
-      level: rentee.verificationLevel,
-      idVerified: rentee.idVerified,
-    );
-    final renteeVerificationStatus = renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED';
+    const renteeIsVerified = false;
+    const renteeVerificationTier = 'None';
+    const renteeVerificationStatus = 'UNVERIFIED';
 
     await callMoney('bookingRequest', {
       'kind': 'vehicle',
@@ -3507,7 +3557,7 @@ class FirestoreService {
     final countField = role == 'renter' ? 'renterRatingCount' : 'hostRatingCount';
 
     // Fetch current values
-    final userDoc = await getDocument('users/$targetUid');
+    final userDoc = await getPublicProfileMap(targetUid);
     if (userDoc == null) throw Exception('User not found.');
 
     final existingRating = (userDoc[field] as num?)?.toDouble() ?? 0.0;
@@ -4194,24 +4244,15 @@ class FirestoreService {
       throw Exception('Selected dates overlap with an existing confirmed rental.');
     }
 
-    final rentee = await getUser(renteeId);
-    if (rentee == null) throw Exception('Renter profile not found.');
+    if (await getUser(renteeId) == null) throw Exception('Renter profile not found.');
 
-    final hostUser = await getUser(property.hostId);
-    final hostIsVerified = hostUser != null
-        ? (hostUser.idVerified || hostUser.verificationLevel >= 2)
-        : (property.hostIsVerified ?? (property.hostVerificationStatus == 'VERIFIED'));
-    final hostVerificationTier = hostUser != null
-        ? PartyVerificationHelper.formatVerificationTier(level: hostUser.verificationLevel, idVerified: hostUser.idVerified)
-        : (property.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None'));
+    // Listing-published host flags only. users.idVerified is owner-writable and is not a trust signal.
+    final hostIsVerified = property.hostIsVerified ?? (property.hostVerificationStatus == 'VERIFIED');
+    final hostVerificationTier = property.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None');
     final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
-
-    final renteeIsVerified = rentee.idVerified || rentee.verificationLevel >= 2;
-    final renteeVerificationTier = PartyVerificationHelper.formatVerificationTier(
-      level: rentee.verificationLevel,
-      idVerified: rentee.idVerified,
-    );
-    final renteeVerificationStatus = renteeIsVerified ? 'VERIFIED' : 'UNVERIFIED';
+    const renteeIsVerified = false;
+    const renteeVerificationTier = 'None';
+    const renteeVerificationStatus = 'UNVERIFIED';
 
     await callMoney('bookingRequest', {
       'kind': 'property',
@@ -4765,8 +4806,6 @@ class FirestoreService {
 
     final property = PropertyRental.fromMap(propDoc, actualPropertyId);
     final hostId = (bookingDoc?['hostId'] ?? property.hostId) as String;
-    final host = await getUser(hostId);
-    if (host == null) throw Exception('Host profile not found.');
 
     // Look up escrow from requestId first, fallback to propertyId
     final payoutRes = await callMoney('bookingAction', {
