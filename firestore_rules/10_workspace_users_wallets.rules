@@ -154,6 +154,7 @@
           request.resource.data.get('isPremium', false) == false &&
           request.resource.data.get('premiumUntil', null) == null &&
           request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          request.resource.data.get('terraPoints', 0) == 0 &&
           !request.resource.data.keys().hasAny([
             'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
             'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
@@ -168,6 +169,7 @@
           request.resource.data.get('isPremium', false) == false &&
           request.resource.data.get('premiumUntil', null) == null &&
           request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          request.resource.data.get('terraPoints', 0) == 0 &&
           !request.resource.data.keys().hasAny([
             'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
             'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
@@ -182,7 +184,7 @@
           'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount',
           'subscriptionTxId', 'subscriptionStatus',
           // Money (server-only): tyxBalance / reservedBalance move only through Cloud Functions or staff.
-          'tyxBalance', 'reservedBalance'
+          'tyxBalance', 'reservedBalance', 'terraPoints'
         ]) && ownerPremiumNotRaised())
         || 
         // 2a. Admin custom claim: moderation, privilege, and entitlement fields. NOT the balance.
@@ -195,7 +197,7 @@
           'role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent',
           'isPremium', 'premiumUntil', 'accountType',
           'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
-          'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
+          'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus', 'terraPoints'
         ]))
         ||
         // 3. Owner's pending subscription request bookkeeping (grants nothing; staff approve it)
@@ -231,7 +233,8 @@
 
       // User Points subcollection
       match /points/{docId} {
-        allow read, write: if isOwner(userId) || isAdminOrStaff();
+        allow read: if isOwner(userId) || isClaimStaff();
+        allow write: if isClaimAdmin();
       }
     }
 
