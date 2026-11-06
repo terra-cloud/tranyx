@@ -636,6 +636,23 @@ class FirestoreService {
     return null;
   }
 
+  /// Firebase ID token `user_id`. The Firestore rules still require this uid to be a party;
+  /// decoding it only builds the query filter.
+  String? get _authUid {
+    final token = idToken;
+    if (token == null || token.isEmpty) return null;
+    final parts = token.split('.');
+    if (parts.length < 2) return null;
+    try {
+      final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      if (payload is Map) {
+        final id = payload['user_id'] ?? payload['sub'];
+        if (id is String && id.isNotEmpty) return id;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // ── Utility ────────────────────────────────────────────────
   Future<void> setDocument(String path, Map data) async {
     if (data.isEmpty) return;
@@ -1180,7 +1197,7 @@ class FirestoreService {
 
     final creatorId = jobData['creatorId'] as String?;
     if (creatorId != null) {
-      await awardPointsIfEligible(creatorId, 'post_first_service');
+      await awardPointsIfEligible(creatorId, 'post_first_service', eventId: docId);
     }
 
     return docId;
@@ -1756,7 +1773,7 @@ class FirestoreService {
     };
     // Write application sub-document
     await createOrUpdate('jobs/$jobId/applications/$applicantUid', appData);
-    await awardPointsIfEligible(applicantUid, 'apply_first_job');
+    await awardPointsIfEligible(applicantUid, 'apply_first_job', eventId: jobId);
     // Update job applicantCount, applicantUids, and recentApplicantPhotos
     if (jobDoc != null) {
       final uids = List<String>.from(jobDoc['applicantUids'] as List? ?? []);
@@ -3130,48 +3147,72 @@ class FirestoreService {
     });
   }
 
-  /// Fetch all pending requests for a specific vehicle, filtered in-memory
-  Future<List<Map<String, dynamic>>> getPendingRequestsForVehicle(String rentalId) async {
+  /// Listing requests for the signed-in host only (`hostId` + listing id). No orderBy or page token:
+  /// callers still filter status and sort in memory. A listing-id-only query is not allowed.
+  Future<List<Map<String, dynamic>>> _hostListingRequests(String collectionId, String listingField, String listingId) async {
+    final uid = _authUid;
+    if (uid == null || listingId.isEmpty) return [];
     final url =
         'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
     final body = jsonEncode({
       'structuredQuery': {
         'from': [
-          {'collectionId': 'rental_requests'},
+          {'collectionId': collectionId},
         ],
         'where': {
-          'fieldFilter': {
-            'field': {'fieldPath': 'rentalId'},
-            'op': 'EQUAL',
-            'value': {'stringValue': rentalId},
+          'compositeFilter': {
+            'op': 'AND',
+            'filters': [
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': 'hostId'},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': uid},
+                },
+              },
+              {
+                'fieldFilter': {
+                  'field': {'fieldPath': listingField},
+                  'op': 'EQUAL',
+                  'value': {'stringValue': listingId},
+                },
+              },
+            ],
           },
         },
       },
     });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final list = <Map<String, dynamic>>[];
-    for (final r in results) {
-      if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map;
-        final name = doc['name'] as String;
-        final parts = name.split('/');
-        final docId = parts.last;
-        final data = _fromFirestoreDoc(doc);
-        data['id'] = docId;
-        if (data['status'] == 'Pending') {
+    try {
+      final req = await _rawRequestWithRetry(url, idToken, _refreshToken, (token) {
+        final headers = <String, String>{'Content-Type': 'application/json'};
+        if (token != null) headers['Authorization'] = 'Bearer $token';
+        return _client.post(Uri.parse(url), headers: headers, body: body);
+      });
+      if (req.statusCode >= 400) return [];
+      final List<dynamic> results = jsonDecode(req.body);
+      final list = <Map<String, dynamic>>[];
+      for (final r in results) {
+        if (r is Map && r.containsKey('document')) {
+          final doc = r['document'] as Map;
+          final name = doc['name'] as String;
+          final data = _fromFirestoreDoc(doc);
+          data['id'] = name.split('/').last;
           list.add(data);
         }
       }
+      return list;
+    } catch (e) {
+      print('_hostListingRequests error: $e');
+      return [];
     }
-    return list;
   }
+
+  /// Fetch all pending requests for a specific vehicle, filtered in-memory
+  Future<List<Map<String, dynamic>>> getPendingRequestsForVehicle(String rentalId) async {
+    final all = await _hostListingRequests('rental_requests', 'rentalId', rentalId);
+    return all.where((data) => data['status'] == 'Pending').toList();
+  }
+
 
   /// Fetch all pending requests for a specific host, filtered in-memory
   Future<List<Map<String, dynamic>>> getPendingRequestsForHost(String hostId) async {
@@ -3631,82 +3672,12 @@ class FirestoreService {
 
   /// Fetch all requests (any status) for a specific vehicle to verify reservation/booking history
   Future<List<Map<String, dynamic>>> getAllRequestsForVehicle(String rentalId) async {
-    final url =
-        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'rental_requests'},
-        ],
-        'where': {
-          'fieldFilter': {
-            'field': {'fieldPath': 'rentalId'},
-            'op': 'EQUAL',
-            'value': {'stringValue': rentalId},
-          },
-        },
-      },
-    });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final list = <Map<String, dynamic>>[];
-    for (final r in results) {
-      if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map;
-        final name = doc['name'] as String;
-        final docId = name.split('/').last;
-        final data = _fromFirestoreDoc(doc);
-        data['id'] = docId;
-        list.add(data);
-      }
-    }
-    return list;
+    return _hostListingRequests('rental_requests', 'rentalId', rentalId);
   }
 
   /// Fetch all requests (any status) for a specific property to verify reservation/booking history
   Future<List<Map<String, dynamic>>> getAllRequestsForProperty(String propertyId) async {
-    final url =
-        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'property_requests'},
-        ],
-        'where': {
-          'fieldFilter': {
-            'field': {'fieldPath': 'propertyId'},
-            'op': 'EQUAL',
-            'value': {'stringValue': propertyId},
-          },
-        },
-      },
-    });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final list = <Map<String, dynamic>>[];
-    for (final r in results) {
-      if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map;
-        final name = doc['name'] as String;
-        final docId = name.split('/').last;
-        final data = _fromFirestoreDoc(doc);
-        data['id'] = docId;
-        list.add(data);
-      }
-    }
-    return list;
+    return _hostListingRequests('property_requests', 'propertyId', propertyId);
   }
 
   /// Update vehicle rental posting details
@@ -4906,45 +4877,10 @@ class FirestoreService {
 
   /// Fetch all pending requests for a property
   Future<List<Map<String, dynamic>>> getPropertyPendingRequestsForProperty(String propertyId) async {
-    final url =
-        'https://firestore.googleapis.com/v1/projects/${currentFirebaseConfig.projectId}/databases/(default)/documents:runQuery';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final body = jsonEncode({
-      'structuredQuery': {
-        'from': [
-          {'collectionId': 'property_requests'},
-        ],
-        'where': {
-          'fieldFilter': {
-            'field': {'fieldPath': 'propertyId'},
-            'op': 'EQUAL',
-            'value': {'stringValue': propertyId},
-          },
-        },
-      },
-    });
-
-    final req = await http.post(Uri.parse(url), headers: headers, body: body);
-    if (req.statusCode >= 400) return [];
-
-    final List<dynamic> results = jsonDecode(req.body);
-    final list = <Map<String, dynamic>>[];
-    for (final r in results) {
-      if (r is Map && r.containsKey('document')) {
-        final doc = r['document'] as Map;
-        final name = doc['name'] as String;
-        final docId = name.split('/').last;
-        final data = _fromFirestoreDoc(doc);
-        data['id'] = docId;
-        if (data['status'] == 'Pending') {
-          list.add(data);
-        }
-      }
-    }
-    return list;
+    final all = await _hostListingRequests('property_requests', 'propertyId', propertyId);
+    return all.where((data) => data['status'] == 'Pending').toList();
   }
+
 
   /// Fetch approved/pending/active requests for a property that occupy calendar availability
   Future<List<Map<String, dynamic>>> getPropertyApprovedRequests(String propertyId) async {
@@ -5327,38 +5263,14 @@ class FirestoreService {
     await setDocument('users/$userId', updatedDoc);
   }
 
-  Future<bool> awardPointsIfEligible(String uid, String questId) async {
+  Future<bool> awardPointsIfEligible(String uid, String questId, {String? eventId}) async {
+    if (uid.isEmpty || _authUid != uid) return false;
     try {
-      final quest = RewardQuest.quests.firstWhere((q) => q.id == questId);
-      final userDoc = await getDocument('users/$uid');
-      if (userDoc == null) return false;
-
-      final currentPoints = userDoc['terraPoints'] as int? ?? 0;
-      final earnedRewards = List<String>.from(userDoc['earnedRewards'] as List? ?? []);
-
-      if (quest.limit == 'Once' && earnedRewards.contains(questId)) {
-        return false; // Already completed
-      }
-
-      // Update User Doc (write only target fields)
-      final newRewards = List<String>.from(earnedRewards)..add(questId);
-      await setDocument('users/$uid', {
-        'terraPoints': currentPoints + quest.points,
-        'earnedRewards': newRewards,
-      });
-
-      // Log to points_history
-      final historyId = '${uid}_${questId}_${DateTime.now().millisecondsSinceEpoch}';
-      await setDocument('points_history/$historyId', {
-        'uid': uid,
+      final result = await callMoney('awardPoints', {
         'questId': questId,
-        'points': quest.points,
-        'title': quest.title,
-        'category': quest.category,
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        if (eventId != null && eventId.isNotEmpty) 'eventId': eventId,
       });
-      print('[Rewards] Awarded ${quest.points} TP to $uid for quest "$questId"');
-      return true;
+      return result['awarded'] == true;
     } catch (e, stack) {
       print('[Rewards] Error awarding points: $e');
       print(stack);

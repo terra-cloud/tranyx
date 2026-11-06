@@ -111,6 +111,14 @@ Claim provisioning, later, by an owner with the Admin SDK (this repo does not mi
 ## Still open (next release-blocker batches, not in this patch)
 
 - No `staffOps` action for proof, finalize, or manual payout completion. Web still writes those itself: `FirebaseService.submitWithdrawalProof` and `confirmP2pWithdrawalCompleted`. Claim staff may still record a claim or proof on `withdrawal_requests`; approve, reject, and the balance stay on `staffOps`.
-- `rental_requests` and `property_requests` are readable by a party (`hostId`, `renteeId`, `renterId`, `uid`, `userId`) or `isClaimStaff()`. Listing-id-only queries (`getAllRequestsForVehicle`, `getPendingRequestsForVehicle`, `getAllRequestsForProperty`, `getPropertyPendingRequestsForProperty`) are denied until they also filter a party field. `/rentals` and `/properties` stay public.
-- `users.terraPoints` cannot be raised by the owner or a doc-flag staff write. `awardPointsIfEligible` still attempts that client write and will be denied until a server grant exists. An admin custom claim, or the Admin SDK, can set the field.
+- Host listing screens now query `hostId` from the signed-in token plus `rentalId` or `propertyId`. A stranger's listing-id-only query stays denied. The party who did not press complete does not receive the other completion quest from that click; they call `awardPoints` for themselves with that job id.
+- `complete_profile_trust` is not granted from `users.idVerified`. `verify_account` uses the Auth token `email_verified` and `phone_number`. `connect_solana_wallet` requires `wallet_verified`.
 - `isAdminOrStaff()` still trusts users-doc flags for non-money desk access (support chats, moderation). It does not authorize treasury reads, `p2p_agents` writes, withdrawal approval, escrow money fields, or booking-request reads.
+
+## Safe web client config
+
+A compile with `ENV=dev` and empty defines is not a production build. Firebase web apiKey, projectId, and appId already live in `DefaultFirebaseConfig` and are public client config.
+
+Public values a real dev/uat/prod bundle needs when those features are used: `APPCHECK_SITE_KEY` (App Check site key), `SOLANA_PUBLIC_KEY` or `TREASURY_PUBLIC_KEY` (treasury address, not a secret), and `SOLANA_RPC_URL` if it does not contain an API key. `BASEMAPS_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` are client map keys.
+
+Do not pass these into the Jaspr client: `XENDIT_SECRET_KEY` (no Dart reader; legacy CI define), `IMGBB_API_KEY` (the upload callable holds it; the client fallback must not be how production gets the key), `GEMINI_AI_API_KEY`, and `CLOUDFLARE_API_TOKEN`.

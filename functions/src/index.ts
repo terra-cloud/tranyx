@@ -16,6 +16,7 @@ import { subscribeWithBalance as runSubscribe } from './subscribe';
 import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
 import { jobAction as runJobAction } from './jobs';
 import { staffClaimsOnly, staffOps as runStaffOps } from './staff_ops';
+import { awardPoints as runAwardPoints } from './points';
 import type { MoneyDeps } from './money';
 
 initializeApp();
@@ -241,3 +242,6 @@ export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () =
 
 /** Staff / P2P-agent money ops: claimWithdrawal | releaseClaim | rejectWithdrawal | approveDeposit | resolveDispute | adminCancelJob (claims, audited). */
 export const staffOps = onCall(moneyOpts, (req) => moneyGuard('staffOps', () => runStaffOps(moneyDeps(), caller(req), req.data, { claimsOnly: staffClaimsOnly() })));
+
+/** Quest points for the signed-in user. Amount and eligibility are server-side. */
+export const awardPoints = onCall(moneyOpts, (req) => moneyGuard('awardPoints', () => runAwardPoints(moneyDeps(), caller(req), req.data)));
