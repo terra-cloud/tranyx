@@ -1,5 +1,5 @@
 // KAN-143 lockdown: mail/emails, tickets, audit_logs, users read scope. Emulator only (demo-tranyx).
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { setupEnv, seed, user, guest, adminClaim, userProfile } from './helpers.mjs';
@@ -79,11 +79,18 @@ describe('KAN-143 users read scope', () => {
     await assertFails(getDoc(doc(guest(), 'users/v')));
     await assertFails(getDocs(collection(guest(), 'users')));
   });
-  it('[MUST-ALLOW] signed-in user can get a counterparty profile by uid, but cannot list or query users', async () => {
-    await seed({ 'users/v': userProfile('v') });
-    await assertSucceeds(getDoc(doc(user('u1'), 'users/v')));
+  it('[MUST-ALLOW] signed-in user reads public_profiles/{uid}, not the private users doc, and cannot list users', async () => {
+    await seed({
+      'users/v': userProfile('v'),
+      'public_profiles/v': { uid: 'v', name: 'User v', accountType: 'nyxian', rating: 4.8, isPremium: false },
+    });
+    await assertFails(getDoc(doc(user('u1'), 'users/v')));
+    const snap = await assertSucceeds(getDoc(doc(user('u1'), 'public_profiles/v')));
+    expect(snap.data().name).toBe('User v');
+    expect(snap.data().email).toBeUndefined();
     await assertFails(getDocs(collection(user('u1'), 'users')));
     await assertFails(getDocs(query(collection(user('u1'), 'users'), where('email', '==', 'v@gmail.com'))));
+    await assertFails(getDocs(collection(user('u1'), 'public_profiles')));
   });
   it('[MUST-ALLOW] staff (admin claim) can list/query users (admin panel)', async () => {
     await seed({ 'users/v': userProfile('v') });

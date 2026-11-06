@@ -59,7 +59,9 @@ describe('RV-A65-C: becoming a job party to read someone else\'s payout', () => 
     await seed({ 'users/poster': userProfile('poster'), 'users/eve': userProfile('eve'),
       'transactions/fees_emp_j9': { uid: 'poster', amount: 40, status: 'Successful', type: 'fee', createdAt: NOW } });
     const db = user('eve');
-    await assertSucceeds(setDoc(doc(db, 'jobs/j9'), job('eve', { acceptedApplicantId: null })));
+    const created = job('eve', { acceptedApplicantId: null });
+    delete created.completionCode;
+    await assertSucceeds(setDoc(doc(db, 'jobs/j9'), created));
     await assertFails(getDoc(doc(db, 'transactions/fees_emp_j9')));
   });
   it('RV-A65-C4 [MEDIUM] non-party cannot pre-create (squat) a job-derived tx id payout_nyx_<publicJobId> / fees_emp_<jobId>', async () => {

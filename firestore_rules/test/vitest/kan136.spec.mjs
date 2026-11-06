@@ -180,12 +180,24 @@ describe('KAN-136-D MUST-DENY: forged / foreign / replayed completions', () => {
     await assertFails(setDoc(doc(db, 'transactions/payout_j1'), payoutTx()));
     await assertFails(setDoc(doc(db, 'transactions/payout_nyx_j1'), payoutTx({ type: 'fee_deduction' })));
   });
-  knownHole('KNOWN-HOLE KAN-136-11 [MEDIUM] worker cannot create payout_nyx_<job> with a forged amount by changing the type string (type ban is exact-match only, compiled:291)', async () => {
+  it('KAN-136-11 [MEDIUM] worker cannot create a forged payout by spelling the type differently, on the global ledger or the user/wallet copies', async () => {
     await base();
-    for (const type of ['Payout', 'fee', 'payment']) {
-      try { await assertFails(setDoc(doc(user('worker'), 'transactions/payout_nyx_j1'), payoutTx({ amount: 1000000, type }))); }
-      finally { await env.clearFirestore(); await base(); }
+    const db = user('worker');
+    for (const type of ['Payout', 'FEE_DEDUCTION', 'Withdraw', 'rebate']) {
+      await assertFails(setDoc(doc(db, 'transactions/payout_nyx_j1'), payoutTx({ amount: 1000000, type })));
+      await assertFails(setDoc(doc(db, 'transactions/note_worker_1'), payoutTx({ amount: 1000000, type })));
+      await assertFails(setDoc(doc(db, 'users/worker/ledger/x'), { type, amount: 1000000 }));
+      await assertFails(setDoc(doc(db, 'users/worker/transactions/x'), { type, amount: 1000000 }));
+      await assertFails(setDoc(doc(db, 'wallets/worker/transactions/x'), { type, amount: 1000000 }));
+      await assertFails(setDoc(doc(db, 'wallets/worker/ledger/x'), { type, amount: 1000000 }));
     }
+    for (const type of ['fee', 'payment']) {
+      await assertFails(setDoc(doc(db, 'transactions/payout_nyx_j1'), payoutTx({ amount: 1000000, type })));
+    }
+    await assertSucceeds(setDoc(doc(db, 'transactions/note_worker_1'), { uid: 'worker', type: 'payment', amount: 1, status: 'Completed', createdAt: now() }));
+    await assertSucceeds(setDoc(doc(db, 'wallets/worker/transactions/note'), { type: 'deposit', amount: 1 }));
+    await assertSucceeds(setDoc(doc(db, 'transactions/payout_nyx_j1'), payoutTx()));
+    await assertFails(updateDoc(doc(db, 'transactions/note_worker_1'), { type: 'Payout', amount: 1000000 }));
   });
   it('KAN-136-09 [HIGH] hired worker cannot delete the job escrow unless the same write completes the job', async () => {
     await base();

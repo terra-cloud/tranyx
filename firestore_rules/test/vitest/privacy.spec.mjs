@@ -1,8 +1,8 @@
 // Privacy & guest access.
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { knownHole, setupEnv, seed, user, guest, userProfile, job, property, vehicle } from './helpers.mjs';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { knownHole, setupEnv, seed, user, guest, adminClaim, userProfile, job, property, vehicle } from './helpers.mjs';
 
 setupEnv();
 
@@ -48,7 +48,7 @@ describe('PRV: users/{id} private fields (Firestore has no field-level read; who
     await seed({ 'users/victim': userProfile('victim') });
     await assertFails(getDoc(doc(guest(), 'users/victim')));
   });
-  knownHole('KNOWN-HOLE PRV-07 [HIGH] another signed-in user cannot read users/{id} private fields (compiled:117)', async () => {
+  it('PRV-07 [HIGH] another signed-in user cannot read users/{id} private fields', async () => {
     await seed({ 'users/victim': userProfile('victim') });
     await assertFails(getDoc(doc(user('u2'), 'users/victim')));
   });
@@ -62,16 +62,77 @@ describe('PRV: users/{id} private fields (Firestore has no field-level read; who
   });
 });
 
+describe('PRV: public profile projection', () => {
+  const card = {
+    uid: 'victim', name: 'User victim', photoUrl: '', headline: 'Handyman', accountType: 'nyxian',
+    skills: ['plumbing'], hourlyRate: 250, rating: 4.8, isPremium: false,
+  };
+  it('PRV-07b [MUST-ALLOW] a signed-in user can read a public profile and not the private user doc', async () => {
+    await seed({ 'users/victim': userProfile('victim'), 'public_profiles/victim': card });
+    const snap = await assertSucceeds(getDoc(doc(user('u2'), 'public_profiles/victim')));
+    expect(snap.data().email).toBeUndefined();
+    expect(snap.data().phoneNumber).toBeUndefined();
+    expect(snap.data().walletPublicKey).toBeUndefined();
+    expect(snap.data().idVerified).toBeUndefined();
+    expect(snap.data().name).toBe('User victim');
+    await assertFails(getDoc(doc(user('u2'), 'users/victim')));
+  });
+  it('PRV-07c [HIGH] owner cannot publish email, phone, wallet, balance, or idVerified on the public profile', async () => {
+    await seed({ 'users/u1': userProfile('u1') });
+    const db = user('u1');
+    for (const extra of [
+      { email: 'u1@gmail.com' },
+      { phoneNumber: '+639171234567' },
+      { walletPublicKey: '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin' },
+      { tyxBalance: 100 },
+      { idVerified: true },
+      { verificationLevel: 2 },
+    ]) {
+      await assertFails(setDoc(doc(db, 'public_profiles/u1'), { ...card, uid: 'u1', ...extra }));
+    }
+  });
+  it('PRV-07d [HIGH] owner cannot publish a rating or premium flag that the user doc does not have', async () => {
+    await seed({ 'users/u1': userProfile('u1', { rating: 4.8, isPremium: false }) });
+    const db = user('u1');
+    await assertFails(setDoc(doc(db, 'public_profiles/u1'), { ...card, uid: 'u1', rating: 5 }));
+    await assertFails(setDoc(doc(db, 'public_profiles/u1'), { ...card, uid: 'u1', isPremium: true }));
+    await assertSucceeds(setDoc(doc(db, 'public_profiles/u1'), { ...card, uid: 'u1' }));
+  });
+  it('PRV-07e [MUST-ALLOW] claim staff can still read the private user doc', async () => {
+    await seed({ 'users/victim': userProfile('victim') });
+    await assertSucceeds(getDoc(doc(adminClaim(), 'users/victim')));
+  });
+});
+
+describe('PRV: completion codes are not a client field on a public job', () => {
+  it('PRV-10 [CRITICAL] a guest can read a job that has no completion code', async () => {
+    const clean = job('poster');
+    delete clean.completionCode;
+    await seed({ 'users/poster': userProfile('poster'), 'jobs/clean': clean });
+    const snap = await assertSucceeds(getDoc(doc(guest(), 'jobs/clean')));
+    expect(snap.data().completionCode).toBeUndefined();
+    expect(snap.data().verificationCode).toBeUndefined();
+    expect(snap.data().title).toBe('Fix sink');
+  });
+  it('PRV-11 [CRITICAL] clients cannot write completionCode or verificationCode onto a job', async () => {
+    const clean = job('poster', { status: 'In Progress', acceptedApplicantId: 'worker' });
+    delete clean.completionCode;
+    await seed({ 'users/poster': userProfile('poster'), 'users/worker': userProfile('worker'), 'jobs/j1': clean });
+    await assertFails(setDoc(doc(user('poster'), 'jobs/new'), job('poster')));
+    await assertFails(updateDoc(doc(user('poster'), 'jobs/j1'), { completionCode: '111111' }));
+    await assertFails(updateDoc(doc(user('worker'), 'jobs/j1'), { verificationCode: '222222' }));
+    await assertFails(updateDoc(doc(adminClaim('poster'), 'jobs/j1'), { completionCode: '333333' }));
+    const snap = await assertSucceeds(getDoc(doc(user('worker'), 'jobs/j1')));
+    expect(snap.data().completionCode).toBeUndefined();
+  });
+});
+
 describe('PRV: listing secrets & exact locations', () => {
-  knownHole('KNOWN-HOLE PRV-10 [CRITICAL] non-poster (guest) cannot read job completionCode (30_workspace_jobs.rules:7 / compiled:492)', async () => {
-    await seedListings();
-    await assertFails(getDoc(doc(guest(), 'jobs/j1')));
-  });
-  knownHole('KNOWN-HOLE PRV-11 [CRITICAL] non-poster signed-in user (incl. assigned worker before completion) cannot read completionCode (compiled:492)', async () => {
-    await seed({ 'jobs/j1': job('poster', { status: 'In Progress', acceptedApplicantId: 'worker' }) });
-    await assertFails(getDoc(doc(user('worker'), 'jobs/j1')));
-  });
-  knownHole('KNOWN-HOLE PRV-12 [MEDIUM] guest cannot read exact job address/pickupLat/pickupLng (compiled:492; split public/private doc needed)', async () => {
+  // PRV-12/13/14 stay open. jobs, properties, and rentals are public discovery documents
+  // (PRV-01/02/03). Their address, city, and map fields are the listing itself. There is no
+  // separate private street field on the account or booking. Denying the whole document would
+  // remove public discovery. This is a product decision, not a rules denial of the listing.
+  knownHole('KNOWN-HOLE PRV-12 [MEDIUM] guest cannot read exact job address/pickupLat/pickupLng (listing address is the public discovery field; whole-doc deny conflicts with PRV-01)', async () => {
     await seedListings();
     await assertFails(getDoc(doc(guest(), 'jobs/j1')));
   });
