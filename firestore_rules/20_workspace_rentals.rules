@@ -162,7 +162,10 @@
     }
 
     match /rental_requests/{requestId} {
-      allow read: if isAuthenticated();
+      // Participants (host, renter, or the rentee/renterId/uid aliases) and claim staff only.
+      // A rentalId-only list is not a party constraint, so strangers cannot read a listing's requests.
+      // Public listing docs stay on /rentals. Collection-group queries have no separate allow.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff.
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/rental_escrows/$(requestId))) || isAdminOrStaff();
