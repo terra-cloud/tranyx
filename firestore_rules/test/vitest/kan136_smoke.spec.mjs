@@ -10,12 +10,12 @@ const PRICE = 800;
 const PAYOUT = PRICE - PRICE * 0.03;
 
 describe('KAN-136 smoke (Saga)', () => {
-  it('SMOKE-Payout [MUST-ALLOW] worker creates payout_nyx_ with job-bound amount', async () => {
+  it('SMOKE-Payout [HIGH] worker cannot client-create payout_nyx_ even with the job-bound amount', async () => {
     await seed({
       'users/worker': userProfile('worker'),
       'jobs/j1': job('poster', { status: 'In Progress', acceptedApplicantId: 'worker', pricingValue: PRICE }),
     });
-    await assertSucceeds(setDoc(doc(user('worker'), 'transactions/payout_nyx_j1'), {
+    await assertFails(setDoc(doc(user('worker'), 'transactions/payout_nyx_j1'), {
       uid: 'worker', amount: PAYOUT, baseAmount: PRICE, commissionRate: 0.03, holdbackRate: 0.10,
       status: 'Successful', type: 'payout', createdAt: NOW,
     }));
@@ -30,11 +30,11 @@ describe('KAN-136 smoke (Saga)', () => {
       status: 'Successful', type: 'payout', createdAt: NOW,
     }));
   });
-  it('SMOKE-Admin [MUST-ALLOW] adminClaim still creates payout', async () => {
+  it('SMOKE-Admin [HIGH] a staff client cannot create payout_nyx_', async () => {
     await seed({
       'jobs/j1': job('poster', { status: 'In Progress', acceptedApplicantId: 'worker', pricingValue: PRICE }),
     });
-    await assertSucceeds(setDoc(doc(adminClaim(), 'transactions/payout_nyx_j1'), {
+    await assertFails(setDoc(doc(adminClaim(), 'transactions/payout_nyx_j1'), {
       uid: 'worker', amount: PAYOUT, status: 'Successful', type: 'payout', createdAt: NOW,
     }));
   });

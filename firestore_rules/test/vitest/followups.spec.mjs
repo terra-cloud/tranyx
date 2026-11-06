@@ -24,9 +24,9 @@ describe('FU-WR: withdrawal owner updates are an allowlist', () => {
     await seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status: 'PENDING_CONFIRMATION' }) });
     await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', adminUid: 'realAdmin' }));
   });
-  it('FU-WR-04 [MUST-ALLOW] owner cancels a never-deducted request (balanceDeducted stays false, no refundedAt)', async () => {
+  it('FU-WR-04 [HIGH] owner cannot client-cancel even when balanceDeducted is already false', async () => {
     await seed({ 'withdrawalRequests/wr1': withdrawal('u1', { status: 'PENDING_REVIEW', balanceDeducted: false }) });
-    await assertSucceeds(setDoc(doc(user('u1'), 'withdrawalRequests/wr1'), { ...withdrawal('u1', { status: 'PENDING_REVIEW', balanceDeducted: false }), status: 'CANCELLED', p2pStatus: 'CANCELLED', rejectionReason: 'typo', verifiedAt: NOW, updatedAt: NOW }));
+    await assertFails(setDoc(doc(user('u1'), 'withdrawalRequests/wr1'), { ...withdrawal('u1', { status: 'PENDING_REVIEW', balanceDeducted: false }), status: 'CANCELLED', p2pStatus: 'CANCELLED', rejectionReason: 'typo', verifiedAt: NOW, updatedAt: NOW }));
   });
 });
 

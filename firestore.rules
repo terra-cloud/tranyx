@@ -145,41 +145,9 @@ service cloud.firestore {
       return isAuthenticated() && (data.get('uid', '') == request.auth.uid || data.get('userId', '') == request.auth.uid);
     }
 
-    // Owner edits to a withdrawal request after create. The owner only ever cancels (before an agent
-    // claims it) or confirms receipt (once the agent sent proof, PENDING_CONFIRMATION -> APPROVED):
-    // web firebase_service.dart cancelP2pWithdrawalRequest / confirmP2pWithdrawalCompleted, mobile
-    // transit_repository.dart. Every owner write must be one of those two transitions, and each extra
-    // field is pinned to it: p2pStatus mirrors the transition, balanceDeducted/refundedAt and
-    // rejectionReason only on cancel (never re-arming a refund), adminUid only on confirm and only the
-    // owner. verifiedAt (epoch ms, both apps write DateTime.now()) can't predate the request or sit more
-    // than 5 minutes past request.time; cancel still sets it because shipped mobile/web clients do.
-    // Everything else is the staffOps callable. Claim staff may still record a claim or proof.
-    // Approve, reject, cancel, and amount changes are not a client write.
-    function isClaimStaffWithdrawalDeskUpdate() {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      let to = request.resource.data.get('status', '');
-      return isClaimStaff() &&
-        !(to in ['APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED']) &&
-        !changed.hasAny(['amount', 'feeAmount', 'netAmount', 'uid', 'userId', 'balanceDeducted']);
-    }
-
-    function isOwnerWithdrawalUpdate() {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      let next = request.resource.data;
-      let from = resource.data.get('status', '');
-      let to = next.get('status', '');
-      let cancelling = changed.hasAny(['status']) && to == 'CANCELLED' && from in ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING'];
-      let confirming = changed.hasAny(['status']) && to == 'APPROVED' && from == 'PENDING_CONFIRMATION';
-      return ownsRecord(resource.data) && (cancelling || confirming) &&
-        changed.hasOnly(['status', 'p2pStatus', 'balanceDeducted', 'refundedAt', 'rejectionReason', 'verifiedAt', 'updatedAt', 'adminUid']) &&
-        (!changed.hasAny(['p2pStatus']) || next.p2pStatus == (cancelling ? 'CANCELLED' : 'COMPLETED')) &&
-        (!changed.hasAny(['balanceDeducted', 'refundedAt']) || (cancelling && next.get('balanceDeducted', false) == false)) &&
-        (!changed.hasAny(['rejectionReason']) || (cancelling && next.rejectionReason is string && next.rejectionReason.size() <= 500)) &&
-        (!changed.hasAny(['adminUid']) || (confirming && next.adminUid == request.auth.uid)) &&
-        (!changed.hasAny(['verifiedAt']) || (next.verifiedAt is number &&
-          next.verifiedAt >= resource.data.get('createdAt', request.time.toMillis() - 300000) &&
-          next.verifiedAt <= request.time.toMillis() + 300000));
-    }
+    // Withdrawal status changes are callables only. Owner cancel/confirm: updateP2pWithdrawal
+    // (no staff claim). Staff claim/release/reject/proof: staffOps. A client update cannot
+    // settle, refund, or attach proof.
 
     // Job-derived global transaction ids (tranyx_app.dart completion flow): payout_nyx_<jobId> is the
     // worker's payout, fees_emp_<jobId> the employer's fees, and either party reads both by id.
@@ -501,28 +469,25 @@ service cloud.firestore {
           (resource != null && ownsRecord(resource.data)) ||
           (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
       allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      // create: payout_nyx_ is only the hired-worker stopgap (type exactly 'payout', amount bound
-      // to the job) or an isAdminOrStaff client writing type exactly 'payout'. Other spellings
-      // (Payout, fee, payment) cannot use that id. Party refund_ / fees_emp_ / p2p_ creates stay.
-      // deposit_sol_ / sub_sol_ / onchain_ stay staff-client or Admin SDK, not an owner create.
-      allow create: if isJobCompletionTxCreate(txId) ||
-        (isAdminOrStaff() && txId.matches('^payout_nyx_.+') && request.resource.data.type == 'payout') ||
+      // create: payout_nyx_ and on-chain credit markers are Admin SDK only
+      // (jobAction complete, creditOnchainPayment). Staff and worker clients cannot write them.
+      // Party refund_ / fees_emp_ / p2p_ creates stay. Staff may still create a non-marker row.
+      allow create: if !clientLedgerTypeBlocked() &&
+        !txId.matches('^(payout_nyx|deposit_sol|deposit_usdt|sub_sol|onchain)_.*') &&
         (
-          !clientLedgerTypeBlocked() &&
-          !txId.matches('^payout_nyx_.*') &&
-          (
-            isAdminOrStaff() ||
-            (isActiveUser() && request.resource.data.uid == request.auth.uid &&
-              (!txId.matches('^(fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)) &&
-              (!txId.matches('^pending_onchain_.*') || isOwnPendingOnchainId(txId, request.auth.uid)) &&
-              !txId.matches('^(deposit_sol|deposit_usdt|sub_sol|onchain)_.*'))
-          )
+          (isAdminOrStaff() && !txId.matches('^(fees_emp|refund_job|refund_stale_job|refund_prop)_.*')) ||
+          (isActiveUser() && request.resource.data.uid == request.auth.uid &&
+            (!txId.matches('^(fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)) &&
+            (!txId.matches('^pending_onchain_.*') || isOwnPendingOnchainId(txId, request.auth.uid)))
         );
       // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
       // On-chain credit records (deposit_<sig> / sub_sol_<sig>) and the shared one-per-signature marker
       // (onchain_<sig>) are Admin SDK / staff only (create and update): the credit happens in the function.
-      allow update: if !clientLedgerTypeIntroduced() && (isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
-        !txId.matches('^(payout_nyx|fees_emp|refund_job|refund_stale_job|refund_prop|p2p|deposit|sub_sol|onchain)_.*') &&
+      // Staff clients cannot rewrite payout rows or on-chain credit markers. Other staff updates stay.
+      allow update: if !clientLedgerTypeIntroduced() &&
+        !txId.matches('^(payout_nyx|fees_emp|deposit_sol|deposit_usdt|sub_sol|onchain)_.*') &&
+        (isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
+        !txId.matches('^(refund_job|refund_stale_job|refund_prop|p2p|deposit)_.*') &&
         (!txId.matches('^pending_onchain_.*') ||
           (isOwnPendingOnchainId(txId, request.auth.uid) && request.resource.data.uid == resource.data.uid))));
       allow delete: if isAdminOrStaff();
@@ -571,18 +536,18 @@ service cloud.firestore {
     // rules): it debits the balance, computes fee/net/rate/crypto amount and signs the Solana
     // transfer server-side. Clients can no longer create a request, so a client-chosen feeAmount: 0,
     // a forged status or a client-side balance debit for a withdrawal is impossible. Clients still
-    // read their own requests and cancel / confirm P2P ones (isOwnerWithdrawalUpdate).
+    // read their own requests. Status changes are updateP2pWithdrawal / staffOps, not a client write.
     match /withdrawal_requests/{reqId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isClaimStaff());
       allow create: if false;
-      allow update: if isOwnerWithdrawalUpdate() || isClaimStaffWithdrawalDeskUpdate();
+      allow update: if false;
       allow delete: if isClaimAdmin();
     }
 
     match /withdrawalRequests/{requestId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isClaimStaff());
       allow create: if false; // requestWithdrawal callable only
-      allow update: if isOwnerWithdrawalUpdate() || isClaimStaffWithdrawalDeskUpdate();
+      allow update: if false;
       allow delete: if isClaimAdmin();
     }
 

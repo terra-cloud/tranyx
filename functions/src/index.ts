@@ -240,8 +240,14 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
 
-/** Staff / P2P-agent money ops: claimWithdrawal | releaseClaim | rejectWithdrawal | approveDeposit | resolveDispute | adminCancelJob (claims, audited). */
-export const staffOps = onCall(moneyOpts, (req) => moneyGuard('staffOps', () => runStaffOps(moneyDeps(), caller(req), req.data, { claimsOnly: staffClaimsOnly() })));
+/** Staff / P2P-agent money ops. createManualWithdrawal reuses processWithdrawal (fee, verified wallet, Solana send). */
+export const staffOps = onCall(
+  { ...moneyOpts, timeoutSeconds: 120, secrets: [TREASURY_SECRET] },
+  (req) => moneyGuard('staffOps', () => runStaffOps(moneyDeps(), caller(req), req.data, {
+    claimsOnly: staffClaimsOnly(),
+    createWithdrawal: (targetUid, data) => processWithdrawal(withdrawDeps(), { uid: targetUid }, data),
+  })),
+);
 
 /** Quest points for the signed-in user. Amount and eligibility are server-side. */
 export const awardPoints = onCall(moneyOpts, (req) => moneyGuard('awardPoints', () => runAwardPoints(moneyDeps(), caller(req), req.data)));
