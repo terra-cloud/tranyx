@@ -59,9 +59,17 @@ async function clearAll() {
   await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/emulator/v1/projects/demo-tranyx/databases/(default)/documents`, { method: 'DELETE' });
 }
 async function seedUser(over: Record<string, unknown> = {}, uid = UID) {
+  const walletPublicKey = (over.walletPublicKey as string | undefined) ?? wallet;
   await db.doc(`users/${uid}`).set({ name: 'Test', email: 't@example.com', tyxBalance: 1000, walletPublicKey: wallet, ...over });
   // The payout-wallet cooldown is satisfied by default (wallet unchanged for 2 days); its own tests override this.
-  await db.doc(`payout_wallet_state/${uid}`).set({ uid, wallet: (over.walletPublicKey as string | undefined) ?? wallet, since: Date.UTC(2026, 9, 27, 4, 0, 0) });
+  await db.doc(`payout_wallet_state/${uid}`).set({ uid, wallet: walletPublicKey, since: Date.UTC(2026, 9, 27, 4, 0, 0) });
+  // wallet_verified is the authority (walletAuthLink). A client-written key alone must not pay out.
+  if (walletPublicKey) {
+    const ver = db.doc(`wallet_verified/${walletPublicKey}`);
+    const existing = await ver.get();
+    // One proof per address. Seeding a second profile with the same client-written key must not steal it.
+    if (!existing.exists || existing.get('uid') === uid) await ver.set({ uid, verifiedAt: Date.UTC(2026, 9, 1) });
+  }
 }
 const bal = async (uid = UID) => (await db.doc(`users/${uid}`).get()).get('tyxBalance') as number;
 const reqDoc = async (key: string) => (await db.doc(`withdrawal_requests/${key}`).get()).data()!;
@@ -418,6 +426,7 @@ describe('KAN-146 withdraw callable core', () => {
 
     it('a changed wallet is refused, recorded, and unlocks after 24h; nothing is debited meanwhile', async () => {
       await db.doc(`users/${UID}`).update({ walletPublicKey: newWallet });
+      await db.doc(`wallet_verified/${newWallet}`).set({ uid: UID, verifiedAt: clock });
       const e1 = await err(processWithdrawal(deps(), auth, sol()));
       expect(e1?.code).toBe('failed-precondition');
       expect(e1?.message).toMatch(/payout wallet was changed recently/);
@@ -438,10 +447,12 @@ describe('KAN-146 withdraw callable core', () => {
 
     it('changing the wallet again restarts the clock', async () => {
       await db.doc(`users/${UID}`).update({ walletPublicKey: newWallet });
+      await db.doc(`wallet_verified/${newWallet}`).set({ uid: UID, verifiedAt: clock });
       await err(processWithdrawal(deps(), auth, sol()));
       clock += 30 * H;
       const third = Keypair.generate().publicKey.toBase58();
       await db.doc(`users/${UID}`).update({ walletPublicKey: third });
+      await db.doc(`wallet_verified/${third}`).set({ uid: UID, verifiedAt: clock });
       expect((await err(processWithdrawal(deps(), auth, sol())))?.code).toBe('failed-precondition');
       expect(await state()).toMatchObject({ wallet: third, since: clock });
     });
@@ -456,10 +467,41 @@ describe('KAN-146 withdraw callable core', () => {
 
     it('walletCooldownHours 0 disables it; P2P is not affected', async () => {
       await db.doc(`users/${UID}`).update({ walletPublicKey: newWallet });
+      await db.doc(`wallet_verified/${newWallet}`).set({ uid: UID, verifiedAt: clock });
       const p2p = { idempotencyKey: randomUUID(), method: 'p2p', amount: 200, p2p: { paymentMethod: 'GCash', accountName: 'A', accountNumber: '09171234567', qrUrl: '' } };
       expect((await processWithdrawal(deps(), auth, p2p)).ok).toBe(true);
       await enable({ walletCooldownHours: 0 });
       expect((await processWithdrawal(deps(), auth, sol())).ok).toBe(true);
+    });
+
+    it('an unverified client-written key is not a payout wallet: no debit, no send, cooldown record stays', async () => {
+      const before = await state();
+      await db.doc(`users/${UID}`).update({ walletPublicKey: newWallet });
+      const e = await err(processWithdrawal(deps(), auth, sol()));
+      expect(e?.code).toBe('failed-precondition');
+      expect(e?.message).toContain('WALLET_NOT_VERIFIED');
+      expect(await bal()).toBe(1000);
+      expect(payer.prepared).toHaveLength(0);
+      expect(await state()).toEqual(before);
+    });
+
+    it('a profile alias that disagrees with the verified wallet is refused with no debit', async () => {
+      const before = await state();
+      await db.doc(`users/${UID}`).update({ solanaWalletAddress: attacker, walletAddress: attacker });
+      const e = await err(processWithdrawal(deps(), auth, sol({ walletPublicKey: attacker, recipient: attacker })));
+      expect(e?.code).toBe('failed-precondition');
+      expect(e?.message).toContain('WALLET_MISMATCH');
+      expect(await bal()).toBe(1000);
+      expect(payer.prepared).toHaveLength(0);
+      expect(await state()).toEqual(before);
+    });
+
+    it('wallet_verified bound to someone else does not authorize this account', async () => {
+      await db.doc(`wallet_verified/${wallet}`).set({ uid: 'other-user', verifiedAt: clock });
+      const e = await err(processWithdrawal(deps(), auth, sol()));
+      expect(e?.message).toContain('WALLET_NOT_VERIFIED');
+      expect(await bal()).toBe(1000);
+      expect(payer.prepared).toHaveLength(0);
     });
   });
 

@@ -43,10 +43,10 @@ Optional `config/credit` (admin-only): `enabled` (kill switch, default true), `m
 (`publicKey`). The treasury **secret** is not used by this function. Public RPC endpoints are rate limited:
 use a dedicated provider for UAT/prod and keep its URL out of git (functions params / `.env.local`).
 
-### Known residual risk
-`creditOnchainPayment` still checks the payer against `users.walletPublicKey` / `walletLinks`, which a client can write
-without proof. `wallet_verified/{wallet}` (written by `walletAuthLink`) is now the proven source: make the credit require it
-once existing users have re-linked with a signature (decision pending).
+### Wallet proof
+`creditOnchainPayment` credits only a wallet with `wallet_verified/{wallet}.uid` equal to the caller. `users.walletPublicKey`
+and `walletLinks` are client-writable and are not proof. Solana withdrawals use the same record: the destination is
+`users.walletPublicKey` only when that verification matches, and a disagreeing `solanaWalletAddress` / `walletAddress` is refused.
 
 ## Sign-In With Solana (`walletAuthNonce`, `walletAuthSignIn`, `walletAuthLink`)
 
@@ -137,9 +137,10 @@ Non-secret params in `.env.<projectId>`: `SOLANA_RPC_URL`, `SOLANA_USDT_MINT`, `
 ## Payout-wallet cooldown
 
 `users/{uid}.walletPublicKey` is owner-writable, so the function keeps its own server-only record,
-`payout_wallet_state/{uid}` = `{wallet, since}`. A Solana withdrawal is allowed only after the profile wallet has matched
-that record for `walletCooldownHours` (default 24). Any wallet change restarts the clock; the first request after a change
-(or the first request after this rolls out, for users with no record) records it and is refused with a clear message.
+`payout_wallet_state/{uid}` = `{wallet, since}`, and pays only when `wallet_verified/{wallet}` names the caller.
+A Solana withdrawal is allowed only after that verified wallet has matched the server record for `walletCooldownHours`
+(default 24). A verified wallet change restarts the clock. An unverified or mismatched profile write does not move the
+record and does not debit. The signed transfer uses the address stored on the withdrawal at commit, not a later client write.
 To avoid a one-time 24h wait for existing users, staff can pre-seed `payout_wallet_state/{uid}` with `since` in the past
 (Admin SDK only; clients cannot read or write it).
 

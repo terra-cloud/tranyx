@@ -15,6 +15,7 @@ import { uploadImage, type FetchLike } from './image_upload';
 import { subscribeWithBalance as runSubscribe } from './subscribe';
 import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
 import { jobAction as runJobAction } from './jobs';
+import { staffClaimsOnly, staffOps as runStaffOps } from './staff_ops';
 import type { MoneyDeps } from './money';
 
 initializeApp();
@@ -26,6 +27,10 @@ const SOLANA_USDT_MINT = defineString('SOLANA_USDT_MINT', { default: 'Es9vMFrzaC
 /** Treasury PUBLIC key (never the secret). Empty = read system_config/treasury. */
 const SOLANA_TREASURY_PUBLIC_KEY = defineString('SOLANA_TREASURY_PUBLIC_KEY', { default: '' });
 // App Check is enforced unless explicitly turned off in functions/.env.<projectId>.
+// Tokens are project-scoped. tranyx-admin is a separate Firebase project from the workspace
+// projects (tranyx-app production web+mobile, tranyx-dev, tranyx-uat). An App Check or Auth
+// token registered for the admin project is not proof for a selected workspace target.
+// This process does not accept an admin-UI session in place of that target's tokens.
 const ENFORCE_APP_CHECK = defineBoolean('ENFORCE_APP_CHECK', { default: true });
 
 /**
@@ -233,3 +238,6 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
+
+/** Staff / P2P-agent money ops: claimWithdrawal | releaseClaim | rejectWithdrawal | approveDeposit | resolveDispute (role-checked, audited). */
+export const staffOps = onCall(moneyOpts, (req) => moneyGuard('staffOps', () => runStaffOps(moneyDeps(), caller(req), req.data, { claimsOnly: staffClaimsOnly() })));
