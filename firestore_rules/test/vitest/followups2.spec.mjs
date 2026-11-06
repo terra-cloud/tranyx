@@ -46,8 +46,8 @@ describe('FU2-WR: owner withdrawal fields are tied to the cancel/confirm transit
     await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', rejectionReason: 'x' }));
     await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', balanceDeducted: false }));
   });
-  it('FU2-WR-03 [MUST-ALLOW] mobile cancel with a reason (transit_repository.dart cancelP2pWithdrawalRequest merge)', async () => {
+  it('FU2-WR-03 [HIGH] owner cannot client-cancel with a reason (updateP2pWithdrawal does the refund)', async () => {
     await seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status: 'PENDING' }) });
-    await assertSucceeds(setDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', rejectionReason: 'wrong account', verifiedAt: NOW }, { merge: true }));
+    await assertFails(setDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', rejectionReason: 'wrong account', verifiedAt: NOW }, { merge: true }));
   });
 });

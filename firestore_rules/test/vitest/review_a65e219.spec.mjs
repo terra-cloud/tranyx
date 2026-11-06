@@ -102,9 +102,9 @@ describe('RV-A65-D: WR2-05 owner cannot forge verification state', () => {
     await base2('PENDING_CONFIRMATION');
     await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', verifiedAt: 1 }));
   });
-  it('RV-A65-D6 [MUST-ALLOW] legit confirm-receipt', async () => {
+  it('RV-A65-D6 [HIGH] owner cannot client-confirm receipt (updateP2pWithdrawal confirm)', async () => {
     await base2('PENDING_CONFIRMATION');
-    await assertSucceeds(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', verifiedAt: NOW, adminUid: 'u1', updatedAt: NOW }));
+    await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', verifiedAt: NOW, adminUid: 'u1', updatedAt: NOW }));
   });
 });
 

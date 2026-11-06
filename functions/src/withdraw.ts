@@ -810,7 +810,17 @@ export async function processP2pAction(deps: Deps, auth: CallerAuth | undefined,
     ]);
     const cur = reqSnap.data();
     // Same answer for "missing" and "someone else's": do not reveal other users' request ids.
-    if (!cur || (cur.uid ?? cur.userId) !== uid) throw new HttpsError('not-found', 'Withdrawal request not found.');
+    // Disagreeing owner aliases are a hard stop with no write, even when one of them is the caller.
+    if (!cur) throw new HttpsError('not-found', 'Withdrawal request not found.');
+    const ownerIds = ['uid', 'userId', 'user_id', 'ownerId', 'ownerUid', 'owner', 'accountId', 'accountUid', 'walletOwnerId']
+      .map((k) => (typeof cur[k] === 'string' ? cur[k].trim().replace(/^(?:users|wallets)\//, '') : ''))
+      .filter((id) => id.length > 0);
+    if (ownerIds.length === 0 || ownerIds.some((id) => id !== uid)) {
+      if (ownerIds.some((id) => id === uid)) {
+        throw new HttpsError('failed-precondition', 'The request owner is inconsistent.', { code: 'OWNER_MISMATCH' });
+      }
+      throw new HttpsError('not-found', 'Withdrawal request not found.');
+    }
     if (cur.method === 'solana') {
       throw new HttpsError('failed-precondition', 'Only P2P cashouts can be changed here.');
     }
@@ -858,10 +868,14 @@ export async function processP2pAction(deps: Deps, auth: CallerAuth | undefined,
     } else {
       if (status === 'APPROVED') return { ok: true, id: input.id, status: 'APPROVED', alreadyDone: true };
       if (status !== 'PENDING_CONFIRMATION') {
-        throw new HttpsError('failed-precondition', 'There is nothing to confirm yet: the agent has not sent proof of payment.');
+        throw new HttpsError('failed-precondition', 'There is nothing to confirm yet: the agent has not sent proof of payment.', { code: 'PROOF_REQUIRED' });
       }
       const method = String(cur.paymentMethod ?? cur.payoutMethod ?? 'GCash');
       const ref = String(cur.referenceNumber ?? '').trim();
+      const proof = String(cur.proofImageUrl ?? '').trim();
+      if (!ref || !/^https:\/\//i.test(proof)) {
+        throw new HttpsError('failed-precondition', 'There is nothing to confirm yet: the agent has not sent proof of payment.', { code: 'PROOF_REQUIRED' });
+      }
       const desc = ref ? `Cashout completed via ${method} (Ref: #${ref})` : `Cashout completed via ${method}`;
       patch = { status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: uid, verifiedAt: now, updatedAt: now };
       ledgerPatch = { status: 'COMPLETED', desc, description: desc, verifiedAt: now, adminUid: uid, updatedAt: now };

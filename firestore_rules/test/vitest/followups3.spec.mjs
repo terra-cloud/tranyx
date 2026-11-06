@@ -26,7 +26,7 @@ describe('FU3-ID: structured transaction ids belong to their party', () => {
     // KAN-146: p2p_with_ withdraw rows are now written by the requestWithdrawal function (Admin SDK) only.
     await assertFails(setDoc(doc(user('u1'), 'transactions/p2p_with_w1'), tx('u1', 'withdraw')));
     await assertSucceeds(setDoc(doc(user('eve'), 'transactions/tx_free_form_1'), tx('eve', 'payment')));
-    await assertSucceeds(setDoc(doc(adminClaim(), 'transactions/payout_nyx_j1'), tx('worker', 'payout')));
+    await assertFails(setDoc(doc(adminClaim(), 'transactions/payout_nyx_j1'), tx('worker', 'payout')));
   });
   it('FU3-ID-02 [MEDIUM] non-party cannot squat refund_job_/refund_prop_/p2p_ ids, nor any id whose record is missing', async () => {
     await prep();
@@ -81,11 +81,11 @@ describe('FU3-RD: missing job/property tx ids are only checkable by their partie
 
 describe('FU3-WR: owner verifiedAt is bounded by the request and request.time', () => {
   const wr = (status, extra = {}) => seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status, ...extra }) });
-  it('FU3-WR-01 [MUST-ALLOW] confirm and cancel with verifiedAt = now (transit_repository.dart / firebase_service.dart)', async () => {
+  it('FU3-WR-01 [HIGH] owner cannot client-confirm or client-cancel, even with verifiedAt = now', async () => {
     await wr('PENDING_CONFIRMATION');
-    await assertSucceeds(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: 'u1', verifiedAt: Date.now() }));
+    await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: 'u1', verifiedAt: Date.now() }));
     await wr('WAITING_FOR_AGENT');
-    await assertSucceeds(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', verifiedAt: Date.now() }));
+    await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', verifiedAt: Date.now() }));
   });
   it('FU3-WR-02 [LOW] verifiedAt before the request was created, or > 5 min in the future, is denied', async () => {
     const db = user('u1');
@@ -100,6 +100,6 @@ describe('FU3-WR: owner verifiedAt is bounded by the request and request.time', 
     const db = user('u1');
     await seed({ 'withdrawal_requests/wr2': { uid: 'u1', userId: 'u1', amount: 5, status: 'PENDING_CONFIRMATION' } });
     await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr2'), { status: 'APPROVED', verifiedAt: Date.now() - 3600000 }));
-    await assertSucceeds(updateDoc(doc(db, 'withdrawal_requests/wr2'), { status: 'APPROVED', verifiedAt: Date.now() }));
+    await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr2'), { status: 'APPROVED', verifiedAt: Date.now() }));
   });
 });

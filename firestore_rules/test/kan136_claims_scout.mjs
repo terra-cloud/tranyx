@@ -60,8 +60,8 @@ const payout = {
 
 let failed = 0;
 try {
-  await assertSucceeds(setDoc(doc(adminDb, 'transactions/payout_nyx_j1'), payout));
-  console.log('PASS  adminClaim create payout_nyx_ (type=payout)');
+  await assertFails(setDoc(doc(adminDb, 'transactions/payout_nyx_j1'), payout));
+  console.log('PASS  adminClaim denied payout_nyx_ (jobAction writes it)');
 } catch (e) {
   failed++;
   console.error('FAIL  adminClaim create payout_nyx_:', e.message || e);
@@ -69,11 +69,11 @@ try {
 
 try {
   // Fresh id so we don't collide with the admin write above
-  await assertSucceeds(setDoc(doc(adminDb, 'transactions/fees_emp_j1'), {
+  await assertFails(setDoc(doc(adminDb, 'transactions/fees_emp_j1'), {
     uid: 'poster', amount: 10, status: 'Successful', type: 'fee_deduction', createdAt: NOW,
     transactionFeeRate: 0.07, convenienceFeeRate: 0.03, baseAmount: 800,
   }));
-  console.log('PASS  adminClaim create fees_emp_ (type=fee_deduction)');
+  console.log('PASS  adminClaim denied fees_emp_ (type=fee_deduction)');
 } catch (e) {
   failed++;
   console.error('FAIL  adminClaim create fees_emp_:', e.message || e);
@@ -90,5 +90,5 @@ try {
 }
 
 await env.cleanup();
-console.log(failed ? `\nSCOUT FAILED (${failed})` : '\nSCOUT OK — admin claims path alive; free payout still denied');
+console.log(failed ? `\nSCOUT FAILED (${failed})` : '\nSCOUT OK — staff client cannot write payout or fee rows');
 process.exit(failed ? 1 : 0);
