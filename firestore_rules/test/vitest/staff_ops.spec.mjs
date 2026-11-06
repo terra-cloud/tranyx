@@ -28,9 +28,11 @@ describe('staff / P2P agent balance writes are callable-only', () => {
     await assertSucceeds(updateDoc(doc(user('agent1'), 'users/victim'), { banned: false, headline: 'ok' }));
     await assertSucceeds(setDoc(doc(adminClaim(), 'users/zero'), userProfile('zero', { tyxBalance: 0 })));
   });
-  it('staff_audit_log: staff read, nobody writes from a client', async () => {
+  it('staff_audit_log: admin claim reads, agents and doc-flag staff do not, nobody writes from a client', async () => {
     await seed({ ...base, 'staff_audit_log/op1': { action: 'approveDeposit' } });
-    await assertSucceeds(getDoc(doc(user('agent1'), 'staff_audit_log/op1')));
+    await assertSucceeds(getDoc(doc(adminClaim(), 'staff_audit_log/op1')));
+    await assertFails(getDoc(doc(user('agent1'), 'staff_audit_log/op1')));
+    await assertFails(getDoc(doc(user('staff1'), 'staff_audit_log/op1')));
     await assertFails(getDoc(doc(user('victim'), 'staff_audit_log/op1')));
     await assertFails(setDoc(doc(adminClaim(), 'staff_audit_log/op2'), { action: 'x' }));
     await assertFails(updateDoc(doc(adminClaim(), 'staff_audit_log/op1'), { action: 'tampered' }));

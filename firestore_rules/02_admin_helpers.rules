@@ -47,3 +47,15 @@
       return isAdminTokenOrEmail() || (isAuthenticated() && (isUserAdminInDoc() || isP2pAgentInDoc()));
     }
 
+    // Server-issued admin custom claim only. role=agent/staff, a users-doc flag, or an active
+    // p2p_agents doc must not grant or edit privilege / paid-entitlement fields.
+    function isClaimAdmin() {
+      return isAuthenticated() && request.auth.token != null && (
+        ('admin' in request.auth.token && request.auth.token.admin == true) ||
+        ('superadmin' in request.auth.token && request.auth.token.superadmin == true) ||
+        ('role' in request.auth.token && request.auth.token.role in [
+          'admin', 'super_admin', 'superadmin', 'ADMIN', 'SUPER_ADMIN', 'SUPERADMIN'
+        ])
+      );
+    }
+

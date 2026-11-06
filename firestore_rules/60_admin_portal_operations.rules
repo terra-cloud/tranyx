@@ -90,9 +90,9 @@
 
     // settings/platform_fees: the fee rates the web/mobile apps read before showing a gig/booking total.
     // Everything else under settings stays closed. Writes are admin/staff only (the server reads it with the Admin SDK).
-    // Audit trail of staffOps (balance / cashout / dispute actions): Admin SDK writes only, staff read.
+    // Audit trail of staffOps: Admin SDK writes only. Read is an admin custom claim, not an agent or a users-doc flag.
     match /staff_audit_log/{opId} {
-      allow read: if isAdminOrStaff();
+      allow read: if isClaimAdmin();
       allow write: if false;
     }
 

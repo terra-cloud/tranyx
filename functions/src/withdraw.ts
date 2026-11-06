@@ -160,20 +160,50 @@ const HOUR_MS = 3600 * 1000;
 const walletStateRef = (db: Firestore, uid: string) => db.doc(`payout_wallet_state/${uid}`);
 
 /**
- * Payout-wallet cooldown. `users/{uid}.walletPublicKey` is owner-writable, so an account takeover (or a
- * script) could repoint it and cash out in one request. The server therefore keeps its OWN record,
- * `payout_wallet_state/{uid}` = { wallet, since } (server-only), and a Solana withdrawal is allowed only
- * once the profile wallet has matched that record for `walletCooldownHours`. Any change of wallet restarts
- * the clock, so the first request after a change records it and is refused.
+ * The only payout destination is `users.walletPublicKey` when `wallet_verified/{wallet}` binds it to
+ * this uid (written by walletAuthLink after a signature). `solanaWalletAddress` / `walletAddress` and
+ * any client-sent address are not authorities. If those profile aliases disagree with the linked key,
+ * the withdrawal is refused. A base58 parse alone is not authorization.
+ * `executeSend` pays the wallet stored on the request at commit time, not a later client write.
+ */
+export function profilePayoutWallet(u: Record<string, unknown>): string {
+  const linked = typeof u.walletPublicKey === 'string' ? u.walletPublicKey.trim() : '';
+  for (const field of ['solanaWalletAddress', 'walletAddress'] as const) {
+    const alt = typeof u[field] === 'string' ? u[field].trim() : '';
+    if (alt && alt !== linked) {
+      throw new HttpsError('failed-precondition', 'WALLET_MISMATCH: Payout wallet fields on the profile disagree. Withdrawals use only the verified linked wallet.');
+    }
+  }
+  try {
+    if (!linked || linked.includes('/')) throw new Error('shape');
+    new PublicKey(linked);
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError('failed-precondition', 'Link a Solana wallet to your profile before withdrawing.');
+  }
+  return linked;
+}
+
+/**
+ * Payout-wallet cooldown. The server keeps `payout_wallet_state/{uid}` = { wallet, since } and a Solana
+ * withdrawal is allowed only once the verified linked wallet has matched that record for
+ * `walletCooldownHours`. An unverified or mismatched profile write does not move the record.
  */
 async function observePayoutWallet(deps: Deps, uid: string): Promise<void> {
   const { db } = deps;
   await db.runTransaction(async (tx) => {
+    const userSnap = await tx.get(db.doc(`users/${uid}`));
+    let linked = '';
+    try {
+      linked = profilePayoutWallet(userSnap.data() ?? {});
+    } catch {
+      return;
+    }
+    const ver = await tx.get(db.doc(`wallet_verified/${linked}`));
+    if (!ver.exists || ver.get('uid') !== uid) return;
     const ref = walletStateRef(db, uid);
-    const [u, st] = await Promise.all([tx.get(db.doc(`users/${uid}`)), tx.get(ref)]);
-    const w = String(u.get('walletPublicKey') || u.get('solanaWalletAddress') || u.get('walletAddress') || '');
-    if (!w) return;
-    if (!st.exists || st.get('wallet') !== w) tx.set(ref, { uid, wallet: w, since: deps.now() });
+    const st = await tx.get(ref);
+    if (!st.exists || st.get('wallet') !== linked) tx.set(ref, { uid, wallet: linked, since: deps.now() });
   });
 }
 
@@ -267,12 +297,11 @@ export async function processWithdrawal(deps: Deps, auth: CallerAuth | undefined
 
     let wallet = '';
     if (input.method === 'solana') {
-      // The destination is ALWAYS the wallet linked on the profile, never a client-sent address.
-      wallet = String(u.walletPublicKey || u.solanaWalletAddress || u.walletAddress || '');
-      try {
-        new PublicKey(wallet);
-      } catch {
-        throw new HttpsError('failed-precondition', 'Link a Solana wallet to your profile before withdrawing.');
+      // Destination is the verified linked wallet only. Client request fields are not read here.
+      wallet = profilePayoutWallet(u);
+      const verifiedSnap = await tx.get(db.doc(`wallet_verified/${wallet}`));
+      if (!verifiedSnap.exists || verifiedSnap.get('uid') !== uid) {
+        throw new HttpsError('failed-precondition', 'WALLET_NOT_VERIFIED: Verify your wallet once in Profile before withdrawing.');
       }
       assertWalletCooldown(now, cfg, wallet, walletStateSnap);
       if (await hasActiveRentals(tx, db, uid)) {

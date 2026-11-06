@@ -1,7 +1,7 @@
 import { HttpsError } from 'firebase-functions/https';
 import type { Firestore, Transaction } from 'firebase-admin/firestore';
 import {
-  CallerAuth, MoneyDeps, Wallet, ledger, notify, numOf, parseId, parseKey, readOp, requireAuth, round2, str, writeOp,
+  CallerAuth, MoneyDeps, Wallet, ledger, notify, numOf, parseId, parseKey, readOpMeta, requireAuth, round2, str, writeOp,
 } from './money';
 
 /**
@@ -10,8 +10,8 @@ import {
  * Until now the admin portal wrote users/{uid}.tyxBalance from the browser (deposit approval, cashout reject
  * refund, dispute arbitration) and `isAdminOrStaff()` (which includes isP2pAgent) let ANY agent write ANY balance.
  * These actions run server-side instead, one Firestore transaction each:
- *   - identity: custom claims (admin / superadmin / role) first; the legacy users-doc flags and an active
- *     p2p_agents doc are still honoured unless STAFF_CLAIMS_ONLY=true (flip it once claims are rolled out)
+ *   - identity: server-issued custom claims only, in every real environment. Legacy users-doc flags and an
+ *     active p2p_agents doc are ignored unless the Functions emulator is running with STAFF_CLAIMS_ONLY=false.
  *   - role matrix: agents may claim / release / reject cashouts and approve deposits; only admin / staff may arbitrate disputes
  *   - amounts come from the authoritative docs (deposit_requests, withdrawal_requests, escrow), never from the client
  *   - status guards make every refund / credit happen at most once; idempotencyKey replays return the stored result
@@ -32,7 +32,15 @@ const STAFF_ROLES = ['staff', 'support'];
 const AGENT_ROLES = ['agent', 'p2p_agent'];
 const DEPOSIT_PENDING = ['PENDING', 'PENDING_REVIEW', 'WAITING_FOR_AGENT', 'OPEN', 'REQUESTED', 'UNDER_REVIEW'];
 
-export function staffRole(token: Record<string, unknown> | undefined, user: Doc | undefined, agent: Doc | undefined, claimsOnly = false): Role | null {
+/**
+ * Claims-only unless this process is the local Functions emulator AND STAFF_CLAIMS_ONLY=false.
+ * A deployed function ignores the off switch: user-doc flags cannot grant staffOps.
+ */
+export function staffClaimsOnly(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !(env.FUNCTIONS_EMULATOR === 'true' && env.STAFF_CLAIMS_ONLY === 'false');
+}
+
+export function staffRole(token: Record<string, unknown> | undefined, user: Doc | undefined, agent: Doc | undefined, claimsOnly = true): Role | null {
   const tokenRole = typeof token?.role === 'string' ? token.role.toLowerCase() : '';
   if (token?.admin === true || token?.superadmin === true || ADMIN_ROLES.includes(tokenRole)) return 'admin';
   if (STAFF_ROLES.includes(tokenRole)) return 'staff';
@@ -56,6 +64,50 @@ function audit(tx: Transaction, db: Firestore, opId: string, now: number, entry:
 }
 
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const OWNER_KEYS = ['uid', 'userId', 'user_id', 'ownerId', 'ownerUid', 'owner', 'accountId', 'accountUid', 'walletOwnerId'];
+
+/** Trim, and unwrap a `users/{id}` or `wallets/{id}` path so a prefixed alias cannot dodge the self check. */
+export function canonicalOwnerId(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  const t = v.trim();
+  const m = t.match(/^(?:users|wallets)\/([A-Za-z0-9_-]{1,128})$/);
+  return m ? m[1] : t;
+}
+
+function ownerAliases(doc: Doc): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(doc)) {
+    if (!OWNER_KEYS.includes(k)) continue;
+    const id = canonicalOwnerId(v);
+    if (id) out.push(id);
+  }
+  return out;
+}
+
+/**
+ * One authoritative owner. Any alias that is the actor is a self-money action.
+ * Disagreeing aliases are rejected rather than picking the one that is not the actor.
+ */
+export function authoritativeOwner(doc: Doc, actorUid: string): string {
+  const aliases = ownerAliases(doc);
+  if (aliases.length === 0) throw new HttpsError('failed-precondition', 'The request has no owner on record.');
+  const actor = canonicalOwnerId(actorUid);
+  if (aliases.some((a) => a === actor)) {
+    throw new HttpsError('permission-denied', 'You cannot act on your own money request.', { code: 'SELF_ACTION' });
+  }
+  if (new Set(aliases).size !== 1) {
+    throw new HttpsError('failed-precondition', 'The request owner is inconsistent.', { code: 'OWNER_MISMATCH' });
+  }
+  return aliases[0];
+}
+
+function actionTarget(action: Action, d: Doc): string {
+  if (action === 'approveDeposit') return `deposit:${parseId(d.depositId, 'depositId')}`;
+  if (action === 'resolveDispute') return `dispute:${parseId(d.disputeId, 'disputeId')}`;
+  const id = parseId(d.withdrawalId, 'withdrawalId');
+  if (!ID_RE.test(id)) throw new HttpsError('invalid-argument', 'withdrawalId is invalid.');
+  return `withdrawal:${id}`;
+}
 
 export interface StaffOpsOptions { claimsOnly?: boolean }
 
@@ -65,18 +117,25 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
   const key = parseKey(d.idempotencyKey);
   const action = d.action as Action;
   if (!ACTIONS.includes(action)) throw new HttpsError('invalid-argument', 'Unknown action.');
+  const target = actionTarget(action, d);
   const { db } = deps;
   const now = deps.now();
   const opId = `${uid}_${key}`;
+  const claimsOnly = opts.claimsOnly ?? true;
 
   return db.runTransaction(async (tx) => {
-    const replay = await readOp(tx, db, uid, key);
-    if (replay) return { ...replay, replay: true };
+    const replay = await readOpMeta(tx, db, uid, key);
+    if (replay) {
+      if (replay.uid !== uid || replay.action !== `staff:${action}` || replay.target !== target) {
+        throw new HttpsError('already-exists', 'This idempotency key was already used for a different operation.', { code: 'IDEMPOTENCY_MISMATCH' });
+      }
+      return { ...replay.result, replay: true };
+    }
     const [userSnap, agentSnap] = await Promise.all([tx.get(db.doc(`users/${uid}`)), tx.get(db.doc(`p2p_agents/${uid}`))]);
-    const role = staffRole(auth?.token, userSnap.data(), agentSnap.data(), opts.claimsOnly);
+    const role = staffRole(auth?.token, userSnap.data(), agentSnap.data(), claimsOnly);
     const staffName = str(userSnap.get('name'), 80) || str(auth?.token?.email, 80) || uid;
     const done = (result: Record<string, unknown>, entry: Doc) => {
-      writeOp(tx, db, uid, key, `staff:${action}`, result, now);
+      writeOp(tx, db, uid, key, `staff:${action}`, result, now, target);
       audit(tx, db, opId, now, { action, actorUid: uid, actorName: staffName, actorRole: role, ...entry, result });
       return result;
     };
@@ -94,8 +153,9 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
       if (String(cur.method ?? '').toLowerCase() === 'solana' || cur.payoutMethod === 'Solana') {
         throw new HttpsError('failed-precondition', 'Solana withdrawals are processed automatically.');
       }
-      const owner = str(cur.uid ?? cur.userId, 128);
       const status = String(cur.status ?? '').toUpperCase();
+      // Claim and reject move or refund the owner's money. Release does not. Self is denied before any write.
+      const owner = action === 'releaseClaim' ? str(cur.uid ?? cur.userId, 128) : authoritativeOwner(cur, uid);
       const agentId = str(cur.agentId, 128);
       const amount = numOf(cur.amount);
       const txMain = db.doc(`transactions/p2p_with_${id}`);
@@ -163,7 +223,7 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
       const dep = depSnap.data();
       if (!dep) throw new HttpsError('not-found', 'Deposit request not found.');
       const status = String(dep.status ?? '').toUpperCase();
-      const owner = str(dep.userId ?? dep.uid, 128);
+      const owner = authoritativeOwner(dep, uid);
       const amount = round2(numOf(dep.amount));
       if (status === 'APPROVED') return done({ ok: true, id, status, alreadyDone: true }, { depositId: id, owner, amount });
       if (!DEPOSIT_PENDING.includes(status)) throw new HttpsError('failed-precondition', 'This deposit can no longer be approved.');
