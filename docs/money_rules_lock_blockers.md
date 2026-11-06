@@ -111,6 +111,6 @@ Claim provisioning, later, by an owner with the Admin SDK (this repo does not mi
 ## Still open (next release-blocker batches, not in this patch)
 
 - No `staffOps` action for proof, finalize, or manual payout completion. Web still writes those itself: `FirebaseService.submitWithdrawalProof` and `confirmP2pWithdrawalCompleted`. Claim staff may still record a claim or proof on `withdrawal_requests`; approve, reject, and the balance stay on `staffOps`.
-- `rental_requests` and `property_requests` `allow read: if isAuthenticated()` (`firestore_rules/20_workspace_rentals.rules`, `40_workspace_properties.rules`). Any signed-in user can read every request, not only the renter and host.
-- `users.terraPoints` is owner-writable (not in the locked field list). Web `awardPointsIfEligible` in `firebase_service.dart` adds points from the client.
-- `isAdminOrStaff()` still trusts users-doc flags and `p2p_agents.isActive` for non-money desk access (support chats, moderation). It does not authorize treasury reads, `p2p_agents` writes, withdrawal approval, or escrow money fields.
+- `rental_requests` and `property_requests` are readable by a party (`hostId`, `renteeId`, `renterId`, `uid`, `userId`) or `isClaimStaff()`. Listing-id-only queries (`getAllRequestsForVehicle`, `getPendingRequestsForVehicle`, `getAllRequestsForProperty`, `getPropertyPendingRequestsForProperty`) are denied until they also filter a party field. `/rentals` and `/properties` stay public.
+- `users.terraPoints` cannot be raised by the owner or a doc-flag staff write. `awardPointsIfEligible` still attempts that client write and will be denied until a server grant exists. An admin custom claim, or the Admin SDK, can set the field.
+- `isAdminOrStaff()` still trusts users-doc flags for non-money desk access (support chats, moderation). It does not authorize treasury reads, `p2p_agents` writes, withdrawal approval, escrow money fields, or booking-request reads.

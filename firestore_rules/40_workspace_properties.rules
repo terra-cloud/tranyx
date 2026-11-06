@@ -103,7 +103,8 @@
 
     // Property Requests Collection
     match /property_requests/{requestId} {
-      allow read: if isAuthenticated();
+      // Same party rule as rental_requests. Public listing docs stay on /properties.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff. See requestPartyUpdateOk (20_workspace_rentals).
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/property_escrows/$(requestId))) || isAdminOrStaff();
