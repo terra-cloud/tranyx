@@ -117,9 +117,13 @@ Booking requests no longer copy `users.idVerified` onto the request. Host verifi
 
 Listing address, city, and map fields stay on the public job, property, and vehicle documents. PRV-01/02/03 require those documents to be readable. There is no separate private street field. PRV-12/13/14 still expect the whole document to be unreadable, which would remove discovery, so they stay expected failures.
 
-`transactions` create rejects type strings `payout`, `payouts`, `rebate`, `rebates`, `fee_deduction`, `withdraw`, and `withdrawal` in any case. The same ban applies to creates on `users/{uid}/transactions`, `users/{uid}/ledger`, `wallets/{uid}/transactions`, and `wallets/{uid}/ledger`, and to an update that changes `type` into one of those values. `payout_nyx_` is not client-creatable except the hired-worker stopgap (type exactly `payout`, amount bound to the job) and an `isAdminOrStaff()` client writing type exactly `payout`. `fee` and `payment` on a `payout_nyx_` id are denied. Those two labels stay allowed on ordinary ids because existing clients already use them there. Party creates of `refund_job_`, `refund_stale_job_`, `refund_prop_`, `fees_emp_`, and `p2p_` stay. Staff can still create `deposit_sol_` / `deposit_usdt_` / `sub_sol_` / `onchain_` markers. Owners cannot. Server `jobAction` / `staffOps` ledger writes are Admin SDK and are unchanged. Withdrawal proof, finalize, and manual payout creation are still the next batch.
+`transactions` create rejects type strings `payout`, `payouts`, `rebate`, `rebates`, `fee_deduction`, `withdraw`, and `withdrawal` in any case. The same ban applies to creates on `users/{uid}/transactions`, `users/{uid}/ledger`, `wallets/{uid}/transactions`, and `wallets/{uid}/ledger`, and to an update that changes `type` into one of those values. `payout_nyx_` and `deposit_sol_` / `deposit_usdt_` / `sub_sol_` / `onchain_` are not client-writable, including an `isAdminOrStaff()` client. `jobAction complete` and `creditOnchainPayment` write them with the Admin SDK. `fee` and `payment` stay allowed on ordinary ids. Party creates of `refund_job_`, `refund_stale_job_`, `refund_prop_`, `fees_emp_`, and `p2p_` stay.
 
 `feat/fn-booking-charge` is already an ancestor of this branch. `fix/wallet-verified-deposits` is already merged (PR 93). Neither branch was merged again.
+
+## Release note: mobile cancel and confirm
+
+Shared Firestore rules now deny every client update of `withdrawal_requests` and `withdrawalRequests`. Owner cancel and confirm go through `updateP2pWithdrawal`. Mobile was not changed in this work and still writes those statuses directly, so those mobile actions fail until a later mobile migration calls the same callable. That deferral is intentional.
 
 ## Withdrawal lifecycle
 
@@ -127,7 +131,7 @@ Owner cancel and confirm are `updateP2pWithdrawal` (`action: 'cancel' | 'confirm
 
 `staffOps` `submitWithdrawalProof` is the claim holder only (`admin`, `staff`, or `agent` custom claim). Body: `withdrawalId`, `referenceNumber`, `proofImageUrl` (https). It sets `PENDING_CONFIRMATION` and does not change the balance or treat the image as a chain payment (`verifiedPayment: false`). A settled cashout returns `SETTLED`. A different proof after the first returns `PROOF_FROZEN`. Another agent's claim returns `CLAIMED_BY_OTHER`. The owner is `SELF_ACTION`. Same idempotency key used for a different action returns `IDEMPOTENCY_MISMATCH`.
 
-`staffOps` `createManualWithdrawal` is `admin` or `staff` only. Body: `targetUserId`, `method: 'solana'`, `amount`, `coin: 'SOL' | 'USDT'`, UUID `idempotencyKey`. Optional `uid` / `userId` / `ownerId` must be the same person. It calls `processWithdrawal` for that person: server fee, `wallet_verified` destination, one debit, then the existing Solana send. P2P is refused. Self-target is `SELF_ACTION`. An agent is `permission-denied`. There is no staff action that marks a P2P cashout paid. Owner confirm is the only P2P settlement. Solana settlement stays `executeSend` / `reconcileWithdrawals`.
+`staffOps` `createManualWithdrawal` is `admin` or `staff` only. Body: `targetUserId`, `method: 'solana'`, `amount`, `coin: 'SOL' | 'USDT'`, UUID `idempotencyKey`. Optional `uid` / `userId` / `ownerId` must be the same person. It calls `processWithdrawal` for that person: server fee (default Solana 2% of the gross `amount`), `wallet_verified` destination, one debit of that gross amount, then `executeSend`. A client `feeAmount` or wallet is ignored. P2P is refused. Self-target is `SELF_ACTION`. An agent is `permission-denied`. A second actor reusing the same withdrawal id gets the stored result and does not write another audit or debit. Cancel and reject refund that same gross `amount` once, only while `balanceDeducted` is true. The fee is not a second debit. There is no staff action that marks a P2P cashout paid. Owner confirm is the only P2P settlement. A Solana broadcast timeout is not rolled back with the debit: the request stays `pending_confirmation` with the balance still debited, and `reconcileOne` refunds only after on-chain failure or two separate expiry observations. A retry does not broadcast again. Solana settlement stays `executeSend` / `reconcileWithdrawals`.
 
 Web `agentClaimP2pWithdrawal`, `submitWithdrawalProof`, and `confirmP2pWithdrawalCompleted` call those functions. `cancelP2pWithdrawalRequest` already did. `handleWithdrawTyx` calls `requestWithdrawal` instead of writing `withdrawalRequests`. Client updates of `withdrawal_requests` and `withdrawalRequests` are denied. `payout_nyx_` and `deposit_sol_` / `deposit_usdt_` / `sub_sol_` / `onchain_` are not client-writable, including `isAdminOrStaff()`. `jobAction complete` and `creditOnchainPayment` still write them with the Admin SDK.
 
@@ -146,9 +150,23 @@ No staff finalize-as-paid action. Do not treat proof as a completed payout.
 
 Mobile still calls the old client cancel/confirm writes. Those rules now deny them. Mobile was not edited. It needs to call `updateP2pWithdrawal` before a rules deploy.
 
+## App Check provider
+
+`packages/tranyx_web/web/index.html` loads Firebase JS 10.12.1 app-check-compat. In that build, `activate(siteKeyString)` constructs `ReCaptchaV3Provider` and exchanges `exchangeRecaptchaV3Token`. `activate(new ReCaptchaEnterpriseProvider(siteKey))` exchanges `exchangeRecaptchaEnterpriseToken` and loads `recaptcha/enterprise.js`. The web token helper now uses the Enterprise provider only. If that constructor is missing, it returns no token. Enforced callables stay fail-closed. The site key value is still the public `APPCHECK_SITE_KEY` define. This does not register the key in a Firebase project.
+
+## Expected-failure classification
+
+These 14 probes still fail on purpose. They are not reclassified as passes.
+
+Launch-relevant, but not a rules denial of a public listing: PRV-12, PRV-13, PRV-14. The probes want guest reads of job, property, and vehicle documents to fail. PRV-01/02/03 require those same documents to stay publicly readable, and their address and map fields are the listing. No separate private street field exists. Left open as a product decision.
+
+Planned ledger design, not a current client payout bypass: PLN-02b, PLN-03, PLN-04. They describe a future `users/{uid}/ledger` id and immutability shape. KAN-136-P1 and KAN-136-P2 describe the old mobile completeJob batch (cross-user balance, `fees_emp_`, `platform_fees`). `jobAction complete` is the server replacement for the payout; the probes stay planned because they still expect the whole mobile batch, including writes the server already performs, to succeed as one client batch.
+
+Not money movement: CHAT-P1 (client `senderId: system`), CHAT-P3 (chat photo URL shape), PR-09 (chat open with a user who never applied), STAFF-OPEN-01 and TRAD6-02 (owner edits desk fields on their own support chat), STAFF-OPEN-02 (client forges another user's notification). No unambiguous money replacement is required to close them, and they are not withdrawal or payout bypasses.
+
 ## Still open (next release-blocker batches, not in this patch)
 
-- No `staffOps` action for proof, finalize, or manual payout completion. Web still writes those itself: `FirebaseService.submitWithdrawalProof` and `confirmP2pWithdrawalCompleted`. Claim staff may still record a claim or proof on `withdrawal_requests`; approve, reject, and the balance stay on `staffOps`.
+- Proof, owner confirm/cancel, and manual Solana create are on `staffOps` / `updateP2pWithdrawal`. There is still no staff action that marks a P2P cashout paid. Mobile still writes cancel/confirm directly and will fail until it calls `updateP2pWithdrawal`.
 - Host listing screens now query `hostId` from the signed-in token plus `rentalId` or `propertyId`. A stranger's listing-id-only query stays denied. The party who did not press complete does not receive the other completion quest from that click; they call `awardPoints` for themselves with that job id.
 - `complete_profile_trust` is not granted from `users.idVerified`. `verify_account` uses the Auth token `email_verified` and `phone_number`. `connect_solana_wallet` requires `wallet_verified`.
 - `isAdminOrStaff()` still trusts users-doc flags for non-money desk access (support chats, moderation). It does not authorize treasury reads, `p2p_agents` writes, withdrawal approval, escrow money fields, or booking-request reads.

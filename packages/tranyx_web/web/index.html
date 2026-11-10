@@ -1033,13 +1033,19 @@
       }
     };
 
-    // App Check token for the withdrawal callable (KAN-146). Site key is public (reCAPTCHA v3/Enterprise).
+    // App Check for money callables. Firebase JS 10.12 treats a string passed to activate() as
+    // ReCaptchaV3Provider (exchangeRecaptchaV3Token). Production registration is reCAPTCHA
+    // Enterprise / Fraud Defense (exchangeRecaptchaEnterpriseToken). A classic token is not
+    // substituted: if the Enterprise provider is missing, no token is returned and enforced
+    // callables stay fail-closed.
     window.getAppCheckToken = async function (config, siteKey) {
       try {
         if (!siteKey || !window.firebase || !firebase.appCheck) return null;
+        const Enterprise = firebase.appCheck.ReCaptchaEnterpriseProvider;
+        if (typeof Enterprise !== 'function') return null;
         if (!firebase.apps.length) firebase.initializeApp(config);
         if (!window.__tyxAppCheckActive) {
-          firebase.appCheck().activate(siteKey, true);
+          firebase.appCheck().activate(new Enterprise(siteKey), true);
           window.__tyxAppCheckActive = true;
         }
         const t = await firebase.appCheck().getToken();
