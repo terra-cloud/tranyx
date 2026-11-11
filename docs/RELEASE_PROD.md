@@ -6,15 +6,19 @@ Run the steps in the order below. Claims have to exist before the new functions 
 
 Every Firebase command includes `--project tranyx-app`. `.firebaserc` sets `projects.default` to `tranyx-app`, so a command that omits `--project` publishes production.
 
-## Blockers to clear before step 1
+## Before you start
 
-These were not executed against production from the prep environment.
+Treasury config stays as it is. `functions/.env.tranyx-app` does not set `SOLANA_TREASURY_PUBLIC_KEY`. Withdrawals keep using the existing `system_config/treasury` public key. Do not change that document or the treasury code for this release.
 
-1. **Mobile workflow.** `develop` differs from `main` under `packages/tranyx_mobile/**`. Pushing `main` runs `.github/workflows/tranyx-mobile-publish.yml` whenever that path changed. This release is web and backend only. Decide how to keep that workflow from publishing mobile before merging to `main`.
-2. **Secrets, by name only.** `requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` require Secret Manager secret `SOLANA_TREASURY_SECRET_KEY`. `uploadImageProxy` requires `IMGBB_API_KEY`. A missing secret fails the functions deploy. Confirm the names exist (step 1). Do not print the values.
-3. **Treasury public key.** `functions/.env.tranyx-app` does not set `SOLANA_TREASURY_PUBLIC_KEY`. An empty value makes withdrawals read `system_config/treasury.publicKey`. Confirm that document has the current treasury public key before the withdrawal smoke test.
-4. **Hosting result.** `.github/workflows/jaspr-hosting-merge.yml` sets `continue-on-error: true` on the hosting deploy. A green workflow can still hide a failed production hosting deploy. Read that step's log.
-5. **Hosting site.** `firebase.json` has one hosting site. `.firebaserc` lists sites `tranyx-dev`, `tranyx-prod`, and `tranyx-uat` on project `tranyx-app`, and the workflow does not set a hosting target. Before announcing, confirm the live channel is the production site.
+Mobile publish does not run on a push to `main`. `.github/workflows/tranyx-mobile-publish.yml` still exists. Its job runs only from **Run workflow** (`workflow_dispatch`) or when the repository variable `PUBLISH_MOBILE` is exactly `true`. Leave that variable unset.
+
+The production hosting step fails the job if the deploy fails. It publishes the live channel of the default Hosting site on project `tranyx-app`:
+
+- site ID `tranyx-app`
+- https://tranyx-app.web.app
+- https://tranyx.app (same release)
+
+Do not set a Hosting `target`. The `.firebaserc` target `tranyx-web-app` lists `tranyx-dev`, `tranyx-prod`, and `tranyx-uat`. https://tranyx-prod.web.app is not the live site.
 
 ## 1. Pre-flight
 
@@ -26,14 +30,16 @@ npx firebase-tools@15.5.1 projects:list
 
 The account in `login:list` must be allowed to deploy `tranyx-app`. `projects:list` must include `tranyx-app`.
 
+### Confirm Secret Manager names
+
+`requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` need `SOLANA_TREASURY_SECRET_KEY`. `uploadImageProxy` needs `IMGBB_API_KEY`. A missing name fails the functions deploy. These commands print metadata only, not the secret value. Do not run `firebase functions:secrets:get` or `gcloud secrets versions access`.
+
 ```bash
 gcloud secrets describe SOLANA_TREASURY_SECRET_KEY --project tranyx-app
 gcloud secrets describe IMGBB_API_KEY --project tranyx-app
 gcloud secrets versions list SOLANA_TREASURY_SECRET_KEY --project tranyx-app
 gcloud secrets versions list IMGBB_API_KEY --project tranyx-app
 ```
-
-`describe` and `versions list` show metadata, not the secret value. Do not run `firebase functions:secrets:get` or `gcloud secrets versions access`.
 
 Params already named in `functions/.env.tranyx-app` (values stay in that file, not in chat):
 
@@ -43,10 +49,7 @@ Params already named in `functions/.env.tranyx-app` (values stay in that file, n
 
 Confirm locally that `ENFORCE_APP_CHECK` is `true`. Leave it true for this release.
 
-Optional params with code defaults, not required in that file:
-
-- `SOLANA_TREASURY_PUBLIC_KEY` (empty means `system_config/treasury.publicKey`)
-- `WALLET_AUTH_DOMAINS` (default includes `tranyx.app`)
+`SOLANA_TREASURY_PUBLIC_KEY` is intentionally unset. The functions keep reading the existing `system_config/treasury` public key. `WALLET_AUTH_DOMAINS` is also unset and defaults to a list that includes `tranyx.app`.
 
 Service accounts for the data tools, as file paths, never committed:
 
@@ -76,11 +79,11 @@ git push origin main
 
 On that `main` push, if `packages/tranyx_web/**`, `packages/shared/**`, or the hosting workflow changed:
 
-- `.github/workflows/jaspr-hosting-merge.yml` builds with `ENV=prod` and deploys hosting to project `tranyx-app`, channel `live`.
+- `.github/workflows/jaspr-hosting-merge.yml` builds with `ENV=prod` and deploys Hosting channel `live` on project `tranyx-app`, site `tranyx-app`.
+- Live URLs: https://tranyx-app.web.app and https://tranyx.app.
+- A failed production hosting deploy fails the job.
 
-If `packages/tranyx_mobile/**` changed (it has, relative to current `main`):
-
-- `.github/workflows/tranyx-mobile-publish.yml` builds and publishes the mobile app. That is outside this release. See the blocker above.
+A push to `main` does not publish mobile. `.github/workflows/tranyx-mobile-publish.yml` stays in the repo and does not run its job unless `PUBLISH_MOBILE` is `true` or someone starts the workflow manually.
 
 No workflow deploys functions, Firestore rules, or indexes. Those stay manual, below.
 
@@ -144,7 +147,7 @@ Index builds do not block reads. Wait until the rules deploy reports success bef
 
 Merging `uat` into `main` (step 2) is the production hosting deploy when web files changed. Do that now.
 
-Watch the `Deploy to Firebase Hosting (prod)` step. `continue-on-error: true` means the job can look green when hosting failed.
+The job fails if `Deploy to Firebase Hosting (prod)` fails. The release is live at https://tranyx-app.web.app and https://tranyx.app.
 
 If you deploy hosting by hand instead, from a checkout of the release SHA, with the same defines the workflow uses (values come from GitHub Actions secrets and variables; do not echo them):
 
@@ -159,6 +162,8 @@ jaspr build --dart-define=ENV=prod \
 cd ../..
 npx firebase-tools@15.5.1 deploy --only hosting --project tranyx-app
 ```
+
+That command has no Hosting target, so it publishes the default site `tranyx-app` (https://tranyx-app.web.app and https://tranyx.app). Do not pass `hosting:tranyx-web-app`.
 
 `ENV=prod` bakes in the reCAPTCHA Enterprise site key and `ReCaptchaEnterpriseProvider`. Do not pass `APPCHECK_SITE_KEY`. Do not use the old `6LfRz...` key.
 

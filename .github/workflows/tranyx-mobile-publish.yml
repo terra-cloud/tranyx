@@ -1,6 +1,12 @@
 name: Build and Publish Mobile App to Solana dApp Store
 
+# A push to main does not publish. The job runs only when someone starts it
+# with workflow_dispatch, or when the repository variable PUBLISH_MOBILE is
+# exactly "true". An unset variable stays off. Delete neither this file nor
+# the push trigger; turn publishing back on by setting the variable or by
+# running the workflow by hand.
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -11,6 +17,7 @@ on:
 jobs:
   build_and_publish:
     name: Build and Publish Mobile
+    if: github.event_name == 'workflow_dispatch' || vars.PUBLISH_MOBILE == 'true'
     runs-on: ubuntu-latest
     env:
       FLAVOR: ''
