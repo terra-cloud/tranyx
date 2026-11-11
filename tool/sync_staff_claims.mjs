@@ -1,67 +1,61 @@
 #!/usr/bin/env node
 /**
- * Sync Firebase Auth custom claims on a TARGET project from users flagged
- * isAdmin or isStaff in the admin portal project (default database: tranyx-admin).
+ * Sync Firebase Auth custom claims on a target project from users flagged
+ * isAdmin, isStaff, or isSuperAdmin in the admin portal project (default: tranyx-admin).
  *
- * Dry-run is the default. It prints who would gain admin/staff claims and, only
- * with --revoke, who would lose them. This script does not run itself against
- * a live project.
+ * Dry-run is the default. It lists who would gain admin/staff claims and who would
+ * lose them. Claims are removed only when both --apply and --revoke are set.
  *
- * Credentials (never commit these files):
- *   ADMIN_GOOGLE_APPLICATION_CREDENTIALS
- *     Service account on tranyx-admin with Cloud Datastore User (read users).
- *   TARGET_GOOGLE_APPLICATION_CREDENTIALS
- *     Service account on the target project (tranyx-dev) with Firebase Auth Admin
- *     (firebaseauth.admin) so it can set custom user claims.
- *   If only GOOGLE_APPLICATION_CREDENTIALS is set, it is used for both, which
- *   only works when one account can read tranyx-admin and write Auth on the target.
+ * A live write against production requires all of:
+ *   --project tranyx-app --allow-prod --apply
+ *   TARGET_GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_APPLICATION_CREDENTIALS
  *
  *   node tool/sync_staff_claims.mjs --project tranyx-dev
- *   node tool/sync_staff_claims.mjs --project tranyx-dev --apply
- *   node tool/sync_staff_claims.mjs --project tranyx-dev --apply --revoke
+ *   node tool/sync_staff_claims.mjs --project tranyx-app --allow-prod
+ *   node tool/sync_staff_claims.mjs --project tranyx-app --allow-prod --apply
+ *   node tool/sync_staff_claims.mjs --project tranyx-app --allow-prod --apply --revoke
  *
- * --revoke is opt-in. Without it, users who no longer have isAdmin/isStaff are
- * listed as "would revoke" only when --revoke is present in a dry run? No:
- * a dry run always lists would-revoke, but claims are removed only when both
- * --apply and --revoke are set.
+ * Credentials (never commit these files):
+ *   ADMIN_GOOGLE_APPLICATION_CREDENTIALS  read users on tranyx-admin
+ *   TARGET_GOOGLE_APPLICATION_CREDENTIALS Firebase Auth Admin on the target
  */
-import { createRequire } from 'node:module';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { credentialPath, logWrite, refuseLive } from './live_target.mjs';
 
 const require = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../functions/package.json'));
 const admin = require('firebase-admin');
 
 const args = process.argv.slice(2);
-const apply = args.includes('--apply');
 const revoke = args.includes('--revoke');
-const projectFlag = args.indexOf('--project');
-const targetProject = projectFlag >= 0 ? args[projectFlag + 1] : '';
-const sourceProject = process.env.ADMIN_PROJECT_ID || 'tranyx-admin';
-
-if (!targetProject || targetProject === 'tranyx-app' || targetProject === 'tranyx-uat') {
-  console.error('Refusing. Pass --project <id>. tranyx-app and tranyx-uat are not targets of this tool.');
+const gate = refuseLive(args);
+if (gate.message) {
+  console.error(gate.message);
   process.exit(2);
 }
 
 function creds(envName) {
-  const path = process.env[envName] || (!process.env.ADMIN_GOOGLE_APPLICATION_CREDENTIALS && !process.env.TARGET_GOOGLE_APPLICATION_CREDENTIALS
-    ? process.env.GOOGLE_APPLICATION_CREDENTIALS
-    : '');
+  const path = process.env[envName] || '';
   if (!path) return undefined;
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
+const sourceProject = process.env.ADMIN_PROJECT_ID || 'tranyx-admin';
 const sourceCred = creds('ADMIN_GOOGLE_APPLICATION_CREDENTIALS') || creds('GOOGLE_APPLICATION_CREDENTIALS');
 const targetCred = creds('TARGET_GOOGLE_APPLICATION_CREDENTIALS') || creds('GOOGLE_APPLICATION_CREDENTIALS');
 if (!sourceCred || !targetCred) {
   console.error('Missing credentials. Set ADMIN_GOOGLE_APPLICATION_CREDENTIALS and TARGET_GOOGLE_APPLICATION_CREDENTIALS.');
   process.exit(2);
 }
+if (gate.apply && !credentialPath()) {
+  console.error('Live --apply requires GOOGLE_APPLICATION_CREDENTIALS or TARGET_GOOGLE_APPLICATION_CREDENTIALS (service account JSON path).');
+  process.exit(2);
+}
 
 const sourceApp = admin.initializeApp({ credential: admin.credential.cert(sourceCred), projectId: sourceProject }, 'source');
-const targetApp = admin.initializeApp({ credential: admin.credential.cert(targetCred), projectId: targetProject }, 'target');
+const targetApp = admin.initializeApp({ credential: admin.credential.cert(targetCred), projectId: gate.project }, 'target');
 const sourceDb = sourceApp.firestore();
 const targetAuth = targetApp.auth();
 
@@ -70,8 +64,8 @@ const wanted = new Map();
 for (const doc of snap.docs) {
   const data = doc.data();
   if (data.isAdmin === true || data.isStaff === true || data.isSuperAdmin === true) {
-    const admin = data.isAdmin === true || data.isSuperAdmin === true;
-    wanted.set(doc.id, admin ? { admin: true, role: 'admin' } : { admin: false, role: 'staff' });
+    const isAdmin = data.isAdmin === true || data.isSuperAdmin === true;
+    wanted.set(doc.id, isAdmin ? { admin: true, role: 'admin' } : { admin: false, role: 'staff' });
   }
 }
 
@@ -83,8 +77,10 @@ do {
   for (const user of page.users) {
     const next = wanted.get(user.uid);
     const claims = user.customClaims || {};
-      if (next) {
-      if (claims.admin !== next.admin || claims.role !== next.role) grant.push({ uid: user.uid, email: user.email || '', ...next });
+    if (next) {
+      if (claims.admin !== next.admin || claims.role !== next.role) {
+        grant.push({ uid: user.uid, email: user.email || '', ...next });
+      }
       wanted.delete(user.uid);
     } else if (claims.admin === true || claims.role === 'admin' || claims.role === 'staff') {
       revokeList.push({ uid: user.uid, email: user.email || '' });
@@ -95,27 +91,45 @@ do {
 for (const [uid, next] of wanted) grant.push({ uid, email: '', missingAuthUser: true, ...next });
 
 console.log(JSON.stringify({
-  dryRun: !apply,
+  dryRun: !gate.apply,
   sourceProject,
-  targetProject,
+  targetProject: gate.project,
+  allowProd: gate.allowProd,
   grant,
   wouldRevoke: revokeList,
-  revokeApplied: apply && revoke,
+  revokeApplied: gate.apply && revoke,
 }, null, 2));
 
-if (!apply) process.exit(0);
+if (!gate.apply) process.exit(0);
+
+const applied = [];
 for (const row of grant) {
-  if (row.missingAuthUser) continue;
+  if (row.missingAuthUser) {
+    logWrite({ op: 'skip', project: gate.project, uid: row.uid, reason: 'missing-auth-user' });
+    continue;
+  }
   const user = await targetAuth.getUser(row.uid);
-  await targetAuth.setCustomUserClaims(row.uid, { ...(user.customClaims || {}), admin: row.admin, role: row.role });
+  const current = user.customClaims || {};
+  if (current.admin === row.admin && current.role === row.role) {
+    logWrite({ op: 'skip', project: gate.project, uid: row.uid, reason: 'claims-already-set', admin: row.admin, role: row.role });
+    continue;
+  }
+  await targetAuth.setCustomUserClaims(row.uid, { ...current, admin: row.admin, role: row.role });
+  logWrite({ op: 'setCustomUserClaims', project: gate.project, uid: row.uid, admin: row.admin, role: row.role });
+  applied.push(row.uid);
 }
 if (revoke) {
   for (const row of revokeList) {
     const user = await targetAuth.getUser(row.uid);
     const next = { ...(user.customClaims || {}) };
+    if (next.admin !== true && next.role !== 'admin' && next.role !== 'staff') {
+      logWrite({ op: 'skip', project: gate.project, uid: row.uid, reason: 'claims-already-clear' });
+      continue;
+    }
     delete next.admin;
     if (next.role === 'admin' || next.role === 'staff') delete next.role;
     await targetAuth.setCustomUserClaims(row.uid, next);
+    logWrite({ op: 'revokeCustomUserClaims', project: gate.project, uid: row.uid });
   }
 }
-console.log(`Applied grants=${grant.filter((row) => !row.missingAuthUser).length} revoke=${revoke ? revokeList.length : 0}`);
+console.log(`Applied grants=${applied.length} revoke=${revoke ? revokeList.length : 0}`);

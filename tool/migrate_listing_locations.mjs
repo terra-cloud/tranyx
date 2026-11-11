@@ -2,29 +2,30 @@
 /**
  * Dry-run by default. Moves exact listing address and coordinate fields from public
  * jobs, properties, and rentals onto {collection}/{id}/private/location and sets
- * addressPublic to "Brgy. *****, ****".
+ * addressPublic to "Brgy. *****, ****". Repeating the run skips listings that no
+ * longer have those public fields.
  *
- * Refuses to write unless FIRESTORE_EMULATOR_HOST is set and --apply is passed.
- * Do not point this at tranyx-dev, tranyx-uat, or tranyx-app.
+ * Emulator:
+ *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8189 node tool/migrate_listing_locations.mjs --project demo-tranyx
+ *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8189 node tool/migrate_listing_locations.mjs --project demo-tranyx --apply
  *
- *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8189 node tool/migrate_listing_locations.mjs
- *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8189 node tool/migrate_listing_locations.mjs --apply
+ * Production write (service account required):
+ *   node tool/migrate_listing_locations.mjs --project tranyx-app --allow-prod
+ *   node tool/migrate_listing_locations.mjs --project tranyx-app --allow-prod --apply
  */
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { resolve, dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { credentialPath, logWrite, refuseLive } from './live_target.mjs';
 
 const require = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../functions/package.json'));
-const { initializeApp } = require('firebase-admin/app');
+const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
-const apply = process.argv.includes('--apply');
-if (!process.env.FIRESTORE_EMULATOR_HOST) {
-  console.error('REFUSING_LIVE_MIGRATION: set FIRESTORE_EMULATOR_HOST. This tool does not write live projects.');
-  process.exit(2);
-}
-if (apply && !process.env.FIRESTORE_EMULATOR_HOST) {
-  console.error('REFUSING_LIVE_MIGRATION: --apply is emulator-only.');
+const gate = refuseLive(process.argv.slice(2));
+if (gate.message) {
+  console.error(gate.message);
   process.exit(2);
 }
 
@@ -35,7 +36,14 @@ const fields = [
   'routeHistory',
 ];
 const mask = 'Brgy. *****, ****';
-initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'demo-tranyx' });
+const projectId = gate.project || process.env.GCLOUD_PROJECT || 'demo-tranyx';
+
+if (gate.host) {
+  initializeApp({ projectId });
+} else {
+  const path = credentialPath();
+  initializeApp({ credential: cert(JSON.parse(readFileSync(path, 'utf8'))), projectId });
+}
 const db = getFirestore();
 const hits = [];
 for (const collection of ['jobs', 'properties', 'rentals']) {
@@ -43,19 +51,46 @@ for (const collection of ['jobs', 'properties', 'rentals']) {
   for (const doc of snap.docs) {
     const data = doc.data();
     const present = fields.filter((field) => data[field] !== undefined);
-    if (present.length) hits.push({ collection, id: doc.id, fields: present, data });
+    if (present.length) hits.push({ collection, id: doc.id, fields: present });
   }
 }
-console.log(JSON.stringify({ dryRun: !apply, count: hits.length, listings: hits.map(({ collection, id, fields: f }) => ({ collection, id, fields: f })) }, null, 2));
-if (!apply) process.exit(0);
+hits.sort((a, b) => `${a.collection}/${a.id}`.localeCompare(`${b.collection}/${b.id}`));
+const audit = {
+  at: Date.now(),
+  apply: gate.apply,
+  project: projectId,
+  emulator: gate.host || null,
+  count: hits.length,
+  listings: hits,
+};
+console.log(JSON.stringify({ dryRun: !gate.apply, ...audit }, null, 2));
+if (!gate.apply) process.exit(0);
+
+let wrote = 0;
 for (const hit of hits) {
+  const path = `${hit.collection}/${hit.id}`;
+  const ref = db.doc(path);
+  const fresh = (await ref.get()).data() || {};
+  const still = fields.filter((field) => fresh[field] !== undefined);
+  if (!still.length) {
+    logWrite({ op: 'skip', project: projectId, path, reason: 'already-migrated' });
+    continue;
+  }
   const location = {};
   const patch = { addressPublic: mask };
-  for (const field of hit.fields) {
-    location[field] = hit.data[field];
+  for (const field of still) {
+    location[field] = fresh[field];
     patch[field] = FieldValue.delete();
   }
-  await db.doc(`${hit.collection}/${hit.id}/private/location`).set(location, { merge: true });
-  await db.doc(`${hit.collection}/${hit.id}`).update(patch);
+  const privatePath = `${path}/private/location`;
+  await db.doc(privatePath).set(location, { merge: true });
+  logWrite({ op: 'set', project: projectId, path: privatePath, fields: still });
+  await ref.update(patch);
+  logWrite({ op: 'update', project: projectId, path, fields: ['addressPublic', ...still.map((field) => `delete:${field}`)] });
+  wrote += 1;
 }
-console.log(`Applied. Moved exact location fields on ${hits.length} listing(s).`);
+if (wrote > 0) {
+  await db.collection('purge_audit').doc(`listing_locations_${audit.at}`).set({ ...audit, wrote });
+  logWrite({ op: 'set', project: projectId, path: `purge_audit/listing_locations_${audit.at}`, fields: ['wrote', 'count'] });
+}
+console.log(`Applied. Moved exact location fields on ${wrote} listing(s).`);
