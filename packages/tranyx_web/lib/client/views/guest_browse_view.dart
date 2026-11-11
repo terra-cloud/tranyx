@@ -4,7 +4,7 @@ import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
-import '../utils/geo_helper.dart';
+import '../utils/listing_privacy.dart';
 
 /// W05/W10 Top Services chips — same keywords as W20 browse filters (live tallies).
 const _kTopServiceChips = [
@@ -72,22 +72,12 @@ List<String> _jobTags(Map<String, dynamic> j, TranyxAppState s) {
   if (locationType.toLowerCase() == 'remote') {
     tags.add('Remote');
   } else {
-    final jobLat = (j['latitude'] as num?)?.toDouble() ?? (j['pickupLat'] as num?)?.toDouble();
-    final jobLng = (j['longitude'] as num?)?.toDouble() ?? (j['pickupLng'] as num?)?.toDouble();
-    if (jobLat != null && jobLng != null) {
-      final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
-      tags.add('${dist.toStringAsFixed(1)} km');
-    } else if (locationType.isNotEmpty) {
-      tags.add(locationType);
-    }
+    tags.add(kPublicAddressMask);
   }
   return tags;
 }
 
 String _approxAreaLabel({
-  required double? lat,
-  required double? lng,
-  required TranyxAppState s,
   String? cityHint,
 }) {
   final parts = <String>['Approx. area'];
@@ -97,10 +87,7 @@ String _approxAreaLabel({
     final first = city.split(',').first.trim();
     if (first.isNotEmpty && first.length < 48) parts.add(first);
   }
-  if (lat != null && lng != null) {
-    final dist = calculateDistance(s.userLatitude, s.userLongitude, lat, lng);
-    parts.add('${dist.toStringAsFixed(1)} km');
-  }
+  parts.add(kPublicAddressMask);
   return parts.join(' · ');
 }
 
@@ -137,19 +124,7 @@ class GuestBrowseViewComponent extends StatelessComponent {
       if (r['isDeleted'] == true) return false;
       return true;
     }).toList()
-      ..sort((vehA, vehB) {
-        final aLat = (vehA['pickupLat'] as num?)?.toDouble();
-        final aLng = (vehA['pickupLng'] as num?)?.toDouble();
-        final bLat = (vehB['pickupLat'] as num?)?.toDouble();
-        final bLng = (vehB['pickupLng'] as num?)?.toDouble();
-        final distA = (aLat != null && aLng != null)
-            ? calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng)
-            : double.infinity;
-        final distB = (bLat != null && bLng != null)
-            ? calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng)
-            : double.infinity;
-        return distA.compareTo(distB);
-      });
+      ..sort((vehA, vehB) => (vehA['brand'] ?? '').toString().compareTo((vehB['brand'] ?? '').toString()));
 
     final availableProperties = s.realtimeProperties.where((prop) {
       final status = prop.status;
@@ -164,25 +139,15 @@ class GuestBrowseViewComponent extends StatelessComponent {
       if (status != 'Available' && status.toLowerCase() != 'available') return false;
       return true;
     }).toList()
-      ..sort((propA, propB) {
-        final distA = calculateDistance(s.userLatitude, s.userLongitude, propA.latitude, propA.longitude);
-        final distB = calculateDistance(s.userLatitude, s.userLongitude, propB.latitude, propB.longitude);
-        return distA.compareTo(distB);
-      });
+      ..sort((propA, propB) => propA.title.compareTo(propB.title));
 
     // Interleave vehicles + properties by distance for the nearby strip (max 3).
     final nearbyRentals = <({bool isProperty, dynamic item, double dist})>[];
     for (final v in availableVehicles) {
-      final lat = (v['pickupLat'] as num?)?.toDouble();
-      final lng = (v['pickupLng'] as num?)?.toDouble();
-      final dist = (lat != null && lng != null)
-          ? calculateDistance(s.userLatitude, s.userLongitude, lat, lng)
-          : double.infinity;
-      nearbyRentals.add((isProperty: false, item: v, dist: dist));
+      nearbyRentals.add((isProperty: false, item: v, dist: 0));
     }
     for (final p in availableProperties) {
-      final dist = calculateDistance(s.userLatitude, s.userLongitude, p.latitude, p.longitude);
-      nearbyRentals.add((isProperty: true, item: p, dist: dist));
+      nearbyRentals.add((isProperty: true, item: p, dist: 0));
     }
     nearbyRentals.sort((rA, rB) => rA.dist.compareTo(rB.dist));
     final rentalPreview = nearbyRentals.take(3).toList();
@@ -442,10 +407,8 @@ class GuestBrowseViewComponent extends StatelessComponent {
     final priceVal = (r['priceDaily'] as num?)?.toDouble() ?? (r['dailyRate'] as num?)?.toDouble() ?? 0.0;
     final priceLabel = priceVal > 0 ? '₱ ${priceVal.toStringAsFixed(0)}/day' : 'Price on join';
 
-    final lat = (r['pickupLat'] as num?)?.toDouble();
-    final lng = (r['pickupLng'] as num?)?.toDouble();
     final cityHint = (r['pickupCity'] ?? r['city'] ?? r['area'] ?? '').toString();
-    final area = _approxAreaLabel(lat: lat, lng: lng, s: s, cityHint: cityHint);
+    final area = _approxAreaLabel(cityHint: cityHint);
 
     final photoUrl =
         r['frontPhotoUrl'] ?? r['frontPhoto'] ?? r['photoUrl'] ?? r['interiorPhotoUrl'] ?? r['backPhotoUrl'];
@@ -519,11 +482,7 @@ class GuestBrowseViewComponent extends StatelessComponent {
         ? '₱ ${prop.priceMonthly.toStringAsFixed(0)}/mo'
         : (prop.priceDaily > 0 ? '₱ ${prop.priceDaily.toStringAsFixed(0)}/day' : 'Price on join');
     // Guests only see approximate distance — exact address unlocks after signup.
-    final area = _approxAreaLabel(
-      lat: prop.latitude,
-      lng: prop.longitude,
-      s: s,
-    );
+    final area = _approxAreaLabel();
     final hasPhoto = prop.photoUrls.isNotEmpty && prop.photoUrls.first.isNotEmpty;
 
     return div(

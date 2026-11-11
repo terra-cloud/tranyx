@@ -115,7 +115,7 @@ Claim provisioning, later, by an owner with the Admin SDK (this repo does not mi
 
 Booking requests no longer copy `users.idVerified` onto the request. Host verification text on a new request comes from the listing's own `hostIsVerified` / `hostVerificationStatus` / `hostVerificationTier`. The renter is recorded as unverified. The employer profile card no longer shows a phone number or verification badges.
 
-Listing address, city, and map fields stay on the public job, property, and vehicle documents. PRV-01/02/03 require those documents to be readable. There is no separate private street field. PRV-12/13/14 still expect the whole document to be unreadable, which would remove discovery, so they stay expected failures.
+Guests still read public job, property, and vehicle documents (PRV-01/02/03). Exact address and coordinates are on `{collection}/{id}/private/location`, readable by any signed-in user. The public summary is `addressPublic` = `Brgy. *****, ****`. Web guests see that mask and do not open a listing map. Signed-in listeners merge `private/location`. `tool/migrate_listing_locations.mjs` backfills legacy listings and refuses to write unless `FIRESTORE_EMULATOR_HOST` is set. It was not run on a live project.
 
 `transactions` create rejects type strings `payout`, `payouts`, `rebate`, `rebates`, `fee_deduction`, `withdraw`, and `withdrawal` in any case. The same ban applies to creates on `users/{uid}/transactions`, `users/{uid}/ledger`, `wallets/{uid}/transactions`, and `wallets/{uid}/ledger`, and to an update that changes `type` into one of those values. `payout_nyx_` and `deposit_sol_` / `deposit_usdt_` / `sub_sol_` / `onchain_` are not client-writable, including an `isAdminOrStaff()` client. `jobAction complete` and `creditOnchainPayment` write them with the Admin SDK. `fee` and `payment` stay allowed on ordinary ids. Party creates of `refund_job_`, `refund_stale_job_`, `refund_prop_`, `fees_emp_`, and `p2p_` stay.
 
@@ -156,9 +156,7 @@ Mobile still calls the old client cancel/confirm writes. Those rules now deny th
 
 ## Expected-failure classification
 
-These 14 probes still fail on purpose. They are not reclassified as passes.
-
-Launch-relevant, but not a rules denial of a public listing: PRV-12, PRV-13, PRV-14. The probes want guest reads of job, property, and vehicle documents to fail. PRV-01/02/03 require those same documents to stay publicly readable, and their address and map fields are the listing. No separate private street field exists. Left open as a product decision.
+These 11 probes still fail on purpose. They are not reclassified as passes. PRV-12, PRV-13, and PRV-14 now pass under the private-location contract above.
 
 Planned ledger design, not a current client payout bypass: PLN-02b, PLN-03, PLN-04. They describe a future `users/{uid}/ledger` id and immutability shape. KAN-136-P1 and KAN-136-P2 describe the old mobile completeJob batch (cross-user balance, `fees_emp_`, `platform_fees`). `jobAction complete` is the server replacement for the payout; the probes stay planned because they still expect the whole mobile batch, including writes the server already performs, to succeed as one client batch.
 

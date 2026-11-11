@@ -28,6 +28,14 @@ const ACTIONS = ['create', 'accept', 'complete', 'cancel', 'reclaim', 'delete', 
 export const MAX_CODE_ATTEMPTS = 5;
 type Action = (typeof ACTIONS)[number];
 const HOUR = 3_600_000;
+const LISTING_LOCATION_KEYS = [
+  'address', 'landmark', 'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+  'destinationAddress', 'destinationLat', 'destinationLng', 'latitude', 'longitude', 'lat', 'lng',
+  'nyxianLat', 'nyxianLng', 'currentLocationLat', 'currentLocationLng', 'trackingLat', 'trackingLng',
+  'routeHistory',
+];
+/** Guest-visible listing summary. Exact address and coordinates stay off the public job. */
+export const PUBLIC_ADDRESS_MASK = 'Brgy. *****, ****';
 const SERVER_JOB_KEYS = new Set([
   'id', 'status', 'creatorId', 'pricingValue', 'createdAt', 'updatedAt', 'applicantCount', 'recentApplicantPhotos', 'applicantUids',
   'transactionFeeRate', 'convenienceFeeRate', 'serviceFeeRate', 'markupRate', 'commissionRate', 'employerFees', 'totalEscrowed',
@@ -101,12 +109,23 @@ export async function jobAction(deps: MoneyDeps, auth: CallerAuth | undefined, d
       const hasTracker = raw.hasTracker === true;
       const jobRef = db.doc(`jobs/${jobId}`);
       if ((await tx.get(jobRef)).exists) throw new HttpsError('already-exists', 'This gig was already posted.');
+      const fields = clientFields(raw);
+      const location: Doc = {};
+      for (const key of LISTING_LOCATION_KEYS) {
+        if (fields[key] !== undefined) {
+          location[key] = fields[key];
+          delete fields[key];
+        }
+      }
+      const hasLocation = Object.keys(location).length > 0;
       tx.create(jobRef, {
-        ...clientFields(raw), id: jobId, creatorId: uid, status: 'Open', createdAt: now, pricingValue: price,
+        ...fields, id: jobId, creatorId: uid, status: 'Open', createdAt: now, pricingValue: price,
         applicantCount: 0, recentApplicantPhotos: [], applicantUids: [], hasTracker, hasInspectionHoldback: hasHoldback,
         transactionFeeRate: txRate, convenienceFeeRate: convRate, commissionRate, employerFees: c.fees, totalEscrowed: c.total,
+        ...(hasLocation ? { addressPublic: PUBLIC_ADDRESS_MASK } : {}),
         ...(promoCode ? { promoCode, discountAmount: discount } : {}),
       });
+      if (hasLocation) tx.set(db.doc(`jobs/${jobId}/private/location`), { ...location, updatedAt: now });
       tx.create(db.doc(`escrow/${jobId}`), {
         amount: c.discounted, price, employerFees: c.fees, totalEscrowed: c.total, transactionFee: round2(c.discounted * txRate),
         convenienceFee: round2(c.discounted * convRate), transactionFeeRate: txRate, convenienceFeeRate: convRate, commissionRate,

@@ -38,9 +38,15 @@ describe('MA-f5d33f3 listing editable fields', () => {
     await seed({ 'users/host': userProfile('host'), 'rentals/r1': vehicle('host', { status: 'Not Accepting Bookings', acceptingBookings: false }) });
     await assertSucceeds(updateDoc(doc(user('host'), 'rentals/r1'), {
       description: 'Freshly detailed', features: ['dashcam', 'bluetooth'], seatingCapacity: 5, fuelPolicy: 'full-to-full',
-      pickupAddress: '50 Kalayaan Ave, QC', pickupLat: 14.649, pickupLng: 121.051, priceDaily: 2200, price12h: 1300,
+      priceDaily: 2200, price12h: 1300,
       priceWeekly: 13000, priceMonthly: 42000, extraPhotos: ['https://example.invalid/a.webp'], status: 'Available',
       acceptingBookings: true, updatedAt: NOW,
+    }));
+    await assertSucceeds(setDoc(doc(user('host'), 'rentals/r1/private/location'), {
+      pickupAddress: '50 Kalayaan Ave, QC', pickupLat: 14.649, pickupLng: 121.051,
+    }));
+    await assertFails(updateDoc(doc(user('host'), 'rentals/r1'), {
+      pickupAddress: '50 Kalayaan Ave, QC', pickupLat: 14.649, pickupLng: 121.051,
     }));
   });
   it('MA-04-neg [HIGH] host cannot set invalid vehicle pricing (12h > daily)', async () => {
@@ -51,8 +57,14 @@ describe('MA-f5d33f3 listing editable fields', () => {
     await seed({ 'users/host': userProfile('host'), 'properties/p1': property('host', { status: 'Not Accepting Bookings', acceptingBookings: false }) });
     await assertSucceeds(updateDoc(doc(user('host'), 'properties/p1'), {
       title: 'Bright studio near BGC', description: 'Newly furnished', priceMonthly: 19000, depositMonths: 2,
-      securityDepositAmount: 38000, photoUrls: ['https://example.invalid/p.webp'], latitude: 14.5504, longitude: 121.0502,
+      securityDepositAmount: 38000, photoUrls: ['https://example.invalid/p.webp'],
       furnishing: 'fully', sqft: 280, status: 'Available', acceptingBookings: true, updatedAt: NOW,
+    }));
+    await assertSucceeds(setDoc(doc(user('host'), 'properties/p1/private/location'), {
+      latitude: 14.5504, longitude: 121.0502, address: 'Bright studio near BGC',
+    }));
+    await assertFails(updateDoc(doc(user('host'), 'properties/p1'), {
+      latitude: 14.5504, longitude: 121.0502,
     }));
   });
   it('MA-05-neg [HIGH] host cannot reprice an actively Booked property', async () => {

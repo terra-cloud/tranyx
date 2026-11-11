@@ -48,6 +48,28 @@ service cloud.firestore {
       return isAuthenticated() && !isUserBlocked(request.auth.uid);
     }
 
+    // Exact listing address and coordinates. Guests may read the public listing, never these fields.
+    // The public document keeps addressPublic = "Brgy. *****, ****". The exact values live in
+    // {collection}/{id}/private/location, readable only by a signed-in user.
+    function hasExactListingLocation(data) {
+      return data.keys().hasAny([
+        'address', 'landmark', 'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+        'destinationAddress', 'destinationLat', 'destinationLng',
+        'latitude', 'longitude', 'lat', 'lng',
+        'nyxianLat', 'nyxianLng', 'currentLocationLat', 'currentLocationLng',
+        'trackingLat', 'trackingLng', 'routeHistory'
+      ]);
+    }
+    function listingUpdateTouchesExactLocation() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'address', 'landmark', 'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+        'destinationAddress', 'destinationLat', 'destinationLng',
+        'latitude', 'longitude', 'lat', 'lng',
+        'nyxianLat', 'nyxianLng', 'currentLocationLat', 'currentLocationLng',
+        'trackingLat', 'trackingLng'
+      ]);
+    }
+
 // >>> SOURCE: firestore_rules/02_admin_helpers.rules
     // ------------------------------------------------------------------------
     // ADMINISTRATIVE & STAFF AUTHORIZATION HELPERS
@@ -615,9 +637,10 @@ service cloud.firestore {
     // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
     match /rentals/{rentalId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid && isValidVehiclePricing(request.resource.data);
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        isValidVehiclePricing(request.resource.data) && !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Vehicle Owner): Can update vehicle/price details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -641,7 +664,7 @@ service cloud.firestore {
             'vehicleValue', 'securityDeposit', 'depositType', 'depositValue',
             'securityDepositPolicy',
             // Location & compliance
-            'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+            'addressPublic',
             'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber',
             'franchisePermit', 'gpsTrackerId',
             // Photos & legal terms
@@ -703,12 +726,22 @@ service cloud.firestore {
           (('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) ||
            ('renterId' in resource.data && resource.data.renterId == request.auth.uid)) && 
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'currentLocationLat', 'currentLocationLng', 'fuelLevel', 
+            'status', 'fuelLevel', 
             'odoMeter', 'dropoffPhotos', 'renteeRated', 'endDate', 'totalCost'
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
+        );
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
@@ -833,9 +866,8 @@ service cloud.firestore {
         (isCreator && openOrReviewing && unassigned && changed.hasOnly([
           'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType',
           'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue',
-          'locationType', 'address', 'landmark', 'status', 'applicantCount',
-          'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat',
-          'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng',
+          'locationType', 'addressPublic', 'status', 'applicantCount',
+          'recentApplicantPhotos', 'applicantUids',
           'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId',
           'acceptedApplicantName', 'receiptUrl', 'employerRated',
           'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl',
@@ -889,7 +921,8 @@ service cloud.firestore {
     match /jobs/{jobId} {
       allow read: if true; // Publicly browse jobs
       allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid &&
-        !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']);
+        !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']) &&
+        !hasExactListingLocation(request.resource.data);
       
       // Update: same per-action conditions as before, but evaluated in ONE function so the shared
       // values (diff, caller role, status) are computed once. Denied writes used to run every allow
@@ -897,10 +930,22 @@ service cloud.firestore {
       // completionCode / verificationCode are server-owned (job_secrets). A client update may not add,
       // change, or clear them. An unchanged legacy field does not block other listing edits.
       allow update: if isJobParticipantUpdate() && isActiveUser() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']);
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
       // 4. Admin / Staff
       allow update: if isAdminOrStaff() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']);
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
+
+      // Exact address and coordinates. Signed-in users only. The public job keeps addressPublic.
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
+        );
+        allow delete: if false;
+      }
 
       // A creator can't delete a job that already has payout/fee records: the tx docs would outlive
       // it and the public job id could be re-created by someone else (deleteJob / tranyx_app.dart
@@ -1060,9 +1105,10 @@ service cloud.firestore {
     // Properties Collection (Anti-Exploitation: Host CANNOT alter pricing/rules once booked)
     match /properties/{propertyId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Property Owner): Can update property details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -1079,7 +1125,7 @@ service cloud.firestore {
             'securityDepositAmount', 'advanceAmount', 'depositType',
             'depositValue', 'securityDepositPolicy',
             // Location & specs
-            'address', 'location', 'landmark', 'lat', 'lng', 'latitude', 'longitude',
+            'addressPublic',
             'bedrooms', 'bathrooms', 'maxGuests', 'sqft', 'furnishing',
             'amenities', 'houseRules',
             // Photos & legal terms
@@ -1141,7 +1187,15 @@ service cloud.firestore {
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' &&
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 

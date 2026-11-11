@@ -61,6 +61,7 @@ describe('RV-A65-C: becoming a job party to read someone else\'s payout', () => 
     const db = user('eve');
     const created = job('eve', { acceptedApplicantId: null });
     delete created.completionCode;
+    for (const key of ['address', 'landmark', 'pickupAddress', 'pickupLat', 'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng']) delete created[key];
     await assertSucceeds(setDoc(doc(db, 'jobs/j9'), created));
     await assertFails(getDoc(doc(db, 'transactions/fees_emp_j9')));
   });

@@ -24,9 +24,10 @@
     // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
     match /rentals/{rentalId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid && isValidVehiclePricing(request.resource.data);
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        isValidVehiclePricing(request.resource.data) && !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Vehicle Owner): Can update vehicle/price details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -50,7 +51,7 @@
             'vehicleValue', 'securityDeposit', 'depositType', 'depositValue',
             'securityDepositPolicy',
             // Location & compliance
-            'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+            'addressPublic',
             'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber',
             'franchisePermit', 'gpsTrackerId',
             // Photos & legal terms
@@ -112,12 +113,22 @@
           (('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) ||
            ('renterId' in resource.data && resource.data.renterId == request.auth.uid)) && 
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'currentLocationLat', 'currentLocationLng', 'fuelLevel', 
+            'status', 'fuelLevel', 
             'odoMeter', 'dropoffPhotos', 'renteeRated', 'endDate', 'totalCost'
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
+        );
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 

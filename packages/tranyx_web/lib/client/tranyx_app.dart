@@ -6948,8 +6948,7 @@ class TranyxAppState extends State<TranyxApp> {
             'timestamp': DateTime.now().millisecondsSinceEpoch,
           });
 
-          await svc.createOrUpdate('jobs/${job['id']}', {
-            ...jobDoc,
+          await svc.setDocument('jobs/${job['id']}/private/location', {
             'nyxianLat': lat,
             'nyxianLng': lng,
             'routeHistory': routeHistory,
@@ -6973,8 +6972,7 @@ class TranyxAppState extends State<TranyxApp> {
             'timestamp': DateTime.now().millisecondsSinceEpoch,
           });
 
-          await svc.createOrUpdate('jobs/${job['id']}', {
-            ...jobDoc,
+          await svc.setDocument('jobs/${job['id']}/private/location', {
             'nyxianLat': lat,
             'nyxianLng': lng,
             'routeHistory': routeHistory,

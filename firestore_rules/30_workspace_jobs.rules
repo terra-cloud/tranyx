@@ -16,9 +16,8 @@
         (isCreator && openOrReviewing && unassigned && changed.hasOnly([
           'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType',
           'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue',
-          'locationType', 'address', 'landmark', 'status', 'applicantCount',
-          'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat',
-          'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng',
+          'locationType', 'addressPublic', 'status', 'applicantCount',
+          'recentApplicantPhotos', 'applicantUids',
           'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId',
           'acceptedApplicantName', 'receiptUrl', 'employerRated',
           'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl',
@@ -72,7 +71,8 @@
     match /jobs/{jobId} {
       allow read: if true; // Publicly browse jobs
       allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid &&
-        !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']);
+        !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']) &&
+        !hasExactListingLocation(request.resource.data);
       
       // Update: same per-action conditions as before, but evaluated in ONE function so the shared
       // values (diff, caller role, status) are computed once. Denied writes used to run every allow
@@ -80,10 +80,22 @@
       // completionCode / verificationCode are server-owned (job_secrets). A client update may not add,
       // change, or clear them. An unchanged legacy field does not block other listing edits.
       allow update: if isJobParticipantUpdate() && isActiveUser() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']);
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
       // 4. Admin / Staff
       allow update: if isAdminOrStaff() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']);
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
+
+      // Exact address and coordinates. Signed-in users only. The public job keeps addressPublic.
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
+        );
+        allow delete: if false;
+      }
 
       // A creator can't delete a job that already has payout/fee records: the tx docs would outlive
       // it and the public job id could be re-created by someone else (deleteJob / tranyx_app.dart

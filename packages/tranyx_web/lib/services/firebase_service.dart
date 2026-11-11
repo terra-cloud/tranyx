@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 
 import 'package:shared/shared.dart';
+import '../client/utils/listing_privacy.dart';
 import 'web_interop.dart';
 
 // ── Environment Configuration ────────────────────────────────────────────────
@@ -656,9 +657,11 @@ class FirestoreService {
   // ── Utility ────────────────────────────────────────────────
   Future<void> setDocument(String path, Map data) async {
     if (data.isEmpty) return;
+    final payload = await _splitListingWrite(path, data);
+    if (payload.isEmpty) return;
     final url = '$_firestoreBase/$path';
-    final body = _toFirestoreFields(data);
-    final queryString = data.keys.map((k) => 'updateMask.fieldPaths=${k.toString()}').join('&');
+    final body = _toFirestoreFields(payload);
+    final queryString = payload.keys.map((k) => 'updateMask.fieldPaths=${k.toString()}').join('&');
     await _patch(
       '$url?$queryString',
       body,
@@ -668,9 +671,19 @@ class FirestoreService {
   }
 
   Future<void> createOrUpdate(String path, Map data) async {
+    final payload = await _splitListingWrite(path, data);
+    if (payload.isEmpty) return;
     final url = '$_firestoreBase/$path';
-    final body = _toFirestoreFields(data);
+    final body = _toFirestoreFields(payload);
     await _patch(url, body, idToken, _refreshToken);
+  }
+
+  /// Exact address and coordinates never stay on the world-readable listing.
+  Future<Map> _splitListingWrite(String path, Map data) async {
+    if (!_isPublicListingPath(path)) return data;
+    final split = splitListingLocation(data);
+    await _writePrivateListingLocation(path, split.privateFields);
+    return split.publicFields;
   }
 
   /// Create-only write whose createdAt is the server request time (ratings/reports rules need createdAt == request.time).
@@ -710,11 +723,26 @@ class FirestoreService {
       final url = '$_firestoreBase/$path';
       final res = await _get(url, idToken: idToken, onTokenRefresh: _refreshToken);
       if (res.isEmpty || !res.containsKey('fields')) return null;
-      return _fromFirestoreDoc(res);
+      final doc = _fromFirestoreDoc(res);
+      if (_authUid != null && _isPublicListingPath(path)) {
+        final loc = await getDocument('$path/private/location');
+        if (loc != null) doc.addAll(loc);
+      }
+      return doc;
     } on FirebaseException catch (e) {
       if (e.statusCode == 404) return null;
       rethrow;
     }
+  }
+
+  bool _isPublicListingPath(String path) {
+    final parts = path.split('/');
+    return parts.length == 2 && (parts[0] == 'jobs' || parts[0] == 'properties' || parts[0] == 'rentals');
+  }
+
+  Future<void> _writePrivateListingLocation(String listingPath, Map<String, dynamic> privateFields) async {
+    if (privateFields.isEmpty) return;
+    await setDocument('$listingPath/private/location', privateFields);
   }
 
   Future<List<Map<String, dynamic>>> getCollection(String path) async {
@@ -727,6 +755,14 @@ class FirestoreService {
         final id = _docId(doc);
         return <String, dynamic>{..._fromFirestoreDoc(doc), 'id': id};
       }).toList();
+      if (_authUid != null && (path == 'jobs' || path == 'properties' || path == 'rentals')) {
+        for (final doc in result) {
+          final id = doc['id'];
+          if (id is! String || id.isEmpty) continue;
+          final loc = await getDocument('$path/$id/private/location');
+          if (loc != null) doc.addAll(loc);
+        }
+      }
       return result;
     } catch (_) {
       return [];
@@ -1512,7 +1548,11 @@ class FirestoreService {
       filteredUpdates['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
     }
 
-    await setDocument('jobs/$jobId', filteredUpdates);
+    final split = splitListingLocation(filteredUpdates);
+    if (split.publicFields.isNotEmpty) {
+      await setDocument('jobs/$jobId', split.publicFields);
+    }
+    await _writePrivateListingLocation('jobs/$jobId', split.privateFields);
   }
 
   /// Logs a security incident if an unauthorized or negative balance update is attempted
@@ -2442,10 +2482,11 @@ class FirestoreService {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
 
+    final split = splitListingLocation(rental.toMap());
     final req = await _client.post(
       Uri.parse(url),
       headers: headers,
-      body: jsonEncode(_toFirestoreFields({...rental.toMap()})),
+      body: jsonEncode(_toFirestoreFields(split.publicFields)),
     );
 
     if (req.statusCode >= 400) {
@@ -2456,6 +2497,7 @@ class FirestoreService {
 
     final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
+    await _writePrivateListingLocation('rentals/$docId', split.privateFields);
     await _chargeListingFee('vehicle', 'rentals', docId);
     return docId;
   }
@@ -2491,10 +2533,11 @@ class FirestoreService {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
 
+    final split = splitListingLocation(rentalMap);
     final req = await _client.post(
       Uri.parse(url),
       headers: headers,
-      body: jsonEncode(_toFirestoreFields({...rentalMap})),
+      body: jsonEncode(_toFirestoreFields(split.publicFields)),
     );
 
     if (req.statusCode >= 400) {
@@ -2505,6 +2548,7 @@ class FirestoreService {
 
     final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
+    await _writePrivateListingLocation('rentals/$docId', split.privateFields);
     await _chargeListingFee('vehicle', 'rentals', docId);
     return docId;
   }
@@ -2623,7 +2667,7 @@ class FirestoreService {
 
   /// Update rental tracking location
   Future<void> updateRentalTracking(String rentalId, double lat, double lng) async {
-    await setDocument('rentals/$rentalId', {
+    await setDocument('rentals/$rentalId/private/location', {
       'trackingLat': lat,
       'trackingLng': lng,
     });
@@ -4042,10 +4086,11 @@ class FirestoreService {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
 
+    final split = splitListingLocation(property.toMap());
     final req = await _client.post(
       Uri.parse(url),
       headers: headers,
-      body: jsonEncode(_toFirestoreFields(property.toMap())),
+      body: jsonEncode(_toFirestoreFields(split.publicFields)),
     );
 
     if (req.statusCode >= 400) {
@@ -4056,6 +4101,7 @@ class FirestoreService {
 
     final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
+    await _writePrivateListingLocation('properties/$docId', split.privateFields);
     await _chargeListingFee('property', 'properties', docId);
     return docId;
   }

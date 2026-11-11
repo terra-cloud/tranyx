@@ -127,21 +127,62 @@ describe('PRV: completion codes are not a client field on a public job', () => {
   });
 });
 
-describe('PRV: listing secrets & exact locations', () => {
-  // PRV-12/13/14 stay open. jobs, properties, and rentals are public discovery documents
-  // (PRV-01/02/03). Their address, city, and map fields are the listing itself. There is no
-  // separate private street field on the account or booking. Denying the whole document would
-  // remove public discovery. This is a product decision, not a rules denial of the listing.
-  knownHole('KNOWN-HOLE PRV-12 [MEDIUM] guest cannot read exact job address/pickupLat/pickupLng (listing address is the public discovery field; whole-doc deny conflicts with PRV-01)', async () => {
-    await seedListings();
-    await assertFails(getDoc(doc(guest(), 'jobs/j1')));
+describe('PRV: listing address is masked for guests', () => {
+  const mask = 'Brgy. *****, ****';
+  it('PRV-12 [MEDIUM] a guest can read a job but not its exact address or coordinates', async () => {
+    const clean = job('poster');
+    for (const key of ['address', 'landmark', 'pickupAddress', 'pickupLat', 'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng']) delete clean[key];
+    clean.addressPublic = mask;
+    await seed({
+      'users/poster': userProfile('poster'),
+      'jobs/j1': clean,
+      'jobs/j1/private/location': { address: '12 Mabini St', pickupLat: 14.55, pickupLng: 121.02 },
+    });
+    const snap = await assertSucceeds(getDoc(doc(guest(), 'jobs/j1')));
+    expect(snap.data().addressPublic).toBe(mask);
+    expect(snap.data().address).toBeUndefined();
+    expect(snap.data().pickupLat).toBeUndefined();
+    expect(snap.data().pickupLng).toBeUndefined();
+    await assertFails(getDoc(doc(guest(), 'jobs/j1/private/location')));
+    const exact = await assertSucceeds(getDoc(doc(user('reader'), 'jobs/j1/private/location')));
+    expect(exact.data().address).toBe('12 Mabini St');
+    expect(exact.data().pickupLat).toBe(14.55);
+    await assertFails(setDoc(doc(user('poster'), 'jobs/j2'), job('poster')));
   });
-  knownHole('KNOWN-HOLE PRV-13 [MEDIUM] guest cannot read exact property address/latitude/longitude (40_...:7 / compiled:697)', async () => {
-    await seedListings();
-    await assertFails(getDoc(doc(guest(), 'properties/p1')));
+  it('PRV-13 [MEDIUM] a guest can read a property but not its exact address or coordinates', async () => {
+    const clean = property('host');
+    for (const key of ['address', 'location', 'landmark', 'lat', 'lng', 'latitude', 'longitude']) delete clean[key];
+    clean.addressPublic = mask;
+    await seed({
+      'users/host': userProfile('host'),
+      'properties/p1': clean,
+      'properties/p1/private/location': { address: 'Unit 12B', latitude: 14.55, longitude: 121.05 },
+    });
+    const snap = await assertSucceeds(getDoc(doc(guest(), 'properties/p1')));
+    expect(snap.data().address).toBeUndefined();
+    expect(snap.data().latitude).toBeUndefined();
+    expect(snap.data().longitude).toBeUndefined();
+    await assertFails(getDoc(doc(guest(), 'properties/p1/private/location')));
+    const exact = await assertSucceeds(getDoc(doc(user('reader'), 'properties/p1/private/location')));
+    expect(exact.data().address).toBe('Unit 12B');
+    await assertFails(setDoc(doc(user('host'), 'properties/p2'), property('host')));
   });
-  knownHole('KNOWN-HOLE PRV-14 [MEDIUM] guest cannot read exact vehicle pickupAddress/pickupLat/pickupLng (20_...:26 / compiled:316)', async () => {
-    await seedListings();
-    await assertFails(getDoc(doc(guest(), 'rentals/r1')));
+  it('PRV-14 [MEDIUM] a guest can read a vehicle but not its exact pickup address or coordinates', async () => {
+    const clean = vehicle('host');
+    for (const key of ['location', 'pickupAddress', 'pickupLat', 'pickupLng']) delete clean[key];
+    clean.addressPublic = mask;
+    await seed({
+      'users/host': userProfile('host'),
+      'rentals/r1': clean,
+      'rentals/r1/private/location': { pickupAddress: '45 Kalayaan Ave', pickupLat: 14.64, pickupLng: 121.05 },
+    });
+    const snap = await assertSucceeds(getDoc(doc(guest(), 'rentals/r1')));
+    expect(snap.data().pickupAddress).toBeUndefined();
+    expect(snap.data().pickupLat).toBeUndefined();
+    expect(snap.data().pickupLng).toBeUndefined();
+    await assertFails(getDoc(doc(guest(), 'rentals/r1/private/location')));
+    const exact = await assertSucceeds(getDoc(doc(user('reader'), 'rentals/r1/private/location')));
+    expect(exact.data().pickupAddress).toBe('45 Kalayaan Ave');
+    await assertFails(setDoc(doc(user('host'), 'rentals/r2'), vehicle('host')));
   });
 });
