@@ -4982,7 +4982,7 @@ class TranyxAppState extends State<TranyxApp> {
       try {
         final token = SessionStorage.idToken;
         if (token != null) {
-          final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$acceptedId');
+          final doc = await FirestoreService(token, _handleTokenRefresh).getPublicProfileMap(acceptedId);
           if (stale()) return;
           setState(() {
             acceptedApplicantProfile = doc;
@@ -5000,7 +5000,7 @@ class TranyxAppState extends State<TranyxApp> {
       try {
         final token = SessionStorage.idToken;
         if (token != null) {
-          final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$creatorId');
+          final doc = await FirestoreService(token, _handleTokenRefresh).getPublicProfileMap(creatorId);
           if (stale()) return;
           setState(() {
             selectedJobCreatorProfile = doc;
@@ -5649,7 +5649,7 @@ class TranyxAppState extends State<TranyxApp> {
     });
 
     try {
-      final doc = await FirestoreService(token, _handleTokenRefresh).getDocument('users/$employerId');
+      final doc = await FirestoreService(token, _handleTokenRefresh).getPublicProfileMap(employerId);
       setState(() {
         employerProfileData = doc;
         isLoadingEmployerProfile = false;
@@ -5673,7 +5673,7 @@ class TranyxAppState extends State<TranyxApp> {
         final copy = Map<String, dynamic>.from(app);
         final applicantUid = copy['applicantUid'] as String?;
         if (applicantUid != null) {
-          final userDoc = await svc.getDocument('users/$applicantUid');
+          final userDoc = await svc.getPublicProfileMap(applicantUid);
           if (userDoc != null) {
             copy['isBonded'] = userDoc['isBonded'] as bool? ?? false;
             copy['certificationUrls'] = userDoc['certificationUrls'];
@@ -6086,13 +6086,13 @@ class TranyxAppState extends State<TranyxApp> {
         if (isCreator) {
           targetId = nyxianId;
           if (nyxianId != null) {
-            final targetDoc = await svc.getDocument('users/$nyxianId');
+            final targetDoc = await svc.getPublicProfileMap(nyxianId);
             targetName = targetDoc?['name'] as String? ?? 'Nyxian';
           }
         } else {
           targetId = jobDoc['creatorId'] as String?;
           if (targetId != null) {
-            final targetDoc = await svc.getDocument('users/$targetId');
+            final targetDoc = await svc.getPublicProfileMap(targetId);
             targetName = targetDoc?['name'] as String? ?? 'Employer';
           }
         }
@@ -8547,18 +8547,11 @@ class TranyxAppState extends State<TranyxApp> {
                 final name = emp['name'] as String? ?? emp['displayName'] as String? ?? 'Unknown';
                 final rating = (emp['rating'] as num?)?.toDouble();
                 final about = emp['about'] as String? ?? emp['headline'] as String? ?? 'No description provided.';
-                final phone = emp['phoneNumber'] as String? ?? emp['mobileNumber'] as String? ?? 'Not provided';
                 final photo = emp['photoUrl'] as String? ?? emp['profile_photo'] as String? ?? '';
 
                 final businessName = emp['businessName'] as String? ?? '';
                 final industry = emp['industry'] as String? ?? '';
                 final hasBusinessInfo = businessName.isNotEmpty && industry.isNotEmpty;
-
-                final isEmail = emp['emailVerified'] == true;
-                final isPhone = emp['phoneVerified'] == true;
-                final isId = emp['idVerified'] == true;
-                final isBg = emp['bgChecked'] == true;
-                final vLevel = emp['verificationLevel'] as int? ?? 0;
 
                 return div(classes: 'flex flex-col', [
                   div(classes: 'flex items-center gap-4 mb-6 mt-2', [
@@ -8600,26 +8593,6 @@ class TranyxAppState extends State<TranyxApp> {
                             Component.text(rating != null && rating > 0 ? rating.toStringAsFixed(1) : 'Unrated'),
                           ],
                         ),
-                        // Verification Badge
-                        div(
-                          classes:
-                              'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold '
-                              '${vLevel == 2
-                                  ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                                  : vLevel == 1
-                                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                                  : "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"}',
-                          [
-                            lIcon(vLevel > 0 ? 'shield-check' : 'shield-alert', cls: 'w-3 h-3'),
-                            Component.text(
-                              vLevel == 2
-                                  ? 'Fully Verified'
-                                  : vLevel == 1
-                                  ? 'Basic Verified'
-                                  : 'Unverified',
-                            ),
-                          ],
-                        ),
                       ]),
                     ]),
                   ]),
@@ -8631,75 +8604,8 @@ class TranyxAppState extends State<TranyxApp> {
                       ]),
                       p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}', [Component.text(about)]),
                     ]),
-                    div([
-                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-1', [
-                        Component.text('Contact'),
-                      ]),
-                      p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"} flex items-center gap-2', [
-                        lIcon('phone', cls: 'w-4 h-4 opacity-70'),
-                        Component.text(phone),
-                      ]),
-                    ]),
-
-                    // Trust & Verification Status Dashboard summary
-                    div([
-                      p(classes: 'text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2', [
-                        Component.text('Verification Levels'),
-                      ]),
-                      div(
-                        classes:
-                            'p-3.5 rounded-2xl border ${isDark ? "bg-zinc-950 border-zinc-800" : "bg-zinc-50 border-zinc-200"} flex items-center justify-around gap-2 text-center',
-                        [
-                          div(classes: 'flex flex-col items-center gap-1', [
-                            div(
-                              classes:
-                                  'p-1.5 rounded-lg ${isEmail ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                              [
-                                lIcon('mail', cls: 'w-4 h-4'),
-                              ],
-                            ),
-                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                              Component.text('Email'),
-                            ]),
-                          ]),
-                          div(classes: 'flex flex-col items-center gap-1', [
-                            div(
-                              classes:
-                                  'p-1.5 rounded-lg ${isPhone ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                              [
-                                lIcon('phone', cls: 'w-4 h-4'),
-                              ],
-                            ),
-                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                              Component.text('Phone'),
-                            ]),
-                          ]),
-                          div(classes: 'flex flex-col items-center gap-1', [
-                            div(
-                              classes:
-                                  'p-1.5 rounded-lg ${isId ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                              [
-                                lIcon('file-text', cls: 'w-4 h-4'),
-                              ],
-                            ),
-                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                              Component.text('ID'),
-                            ]),
-                          ]),
-                          div(classes: 'flex flex-col items-center gap-1', [
-                            div(
-                              classes:
-                                  'p-1.5 rounded-lg ${isBg ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}',
-                              [
-                                lIcon('shield-check', cls: 'w-4 h-4'),
-                              ],
-                            ),
-                            p(classes: 'text-[9px] font-bold ${isDark ? "text-zinc-500" : "text-zinc-400"}', [
-                              Component.text('Background'),
-                            ]),
-                          ]),
-                        ],
-                      ),
+                    p(classes: 'text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
+                      Component.text('Contact details and verification stay on the private account.'),
                     ]),
 
                     if (emp['skills'] != null && (emp['skills'] as List).isNotEmpty)
