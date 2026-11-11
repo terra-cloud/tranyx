@@ -5,6 +5,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { Keypair } from '@solana/web3.js';
 import { executeSend, processP2pAction, processWithdrawal, reconcileAll, reconcileOne, type Deps, type Log } from '../src/withdraw';
+import { staffOps } from '../src/staff_ops';
 import type { PreparedTransfer, SignatureOutcome, SolanaPayer, TransferRequest } from '../src/solana';
 
 process.env.FIRESTORE_EMULATOR_HOST ??= '127.0.0.1:8189';
@@ -942,5 +943,251 @@ describe('KAN-146 withdraw callable core', () => {
       expect((await err(processWithdrawal(deps(), auth, p2p({ p2p: { paymentMethod: 'Venmo', accountName: 'a', accountNumber: '1' } }))))?.code).toBe('invalid-argument');
       expect((await err(processWithdrawal(deps(), auth, p2p({ p2p: { paymentMethod: 'Maya', accountName: '', accountNumber: '1' } }))))?.code).toBe('invalid-argument');
     });
+  });
+});
+
+describe('withdrawal lifecycle invariants', () => {
+  const plain = { uid: UID };
+  const agent = { uid: 'agt', token: { role: 'agent' as const } };
+  const staff = { uid: 'adm', token: { admin: true as const, email: 'ops@example.com' } };
+  const otherStaff = { uid: 'boss', token: { admin: true as const } };
+  const moneyDeps = () => ({ db, now: () => clock });
+  const wire = {
+    createWithdrawal: (uid: string, data: Record<string, unknown>) => processWithdrawal(deps(), { uid }, data),
+  };
+  const aliases = ['uid', 'userId', 'user_id', 'ownerId', 'ownerUid', 'owner', 'accountId', 'accountUid', 'walletOwnerId'];
+
+  beforeEach(async () => {
+    await db.doc('users/agt').set({ name: 'Agent', tyxBalance: 50, email: 'agt@example.com' });
+    await db.doc('users/adm').set({ name: 'Ops', email: 'ops@example.com', tyxBalance: 9000, walletPublicKey: attacker });
+    await db.doc('users/boss').set({ name: 'Boss', tyxBalance: 10 });
+  });
+
+  it('a plain owner with no staff claim can cancel and confirm; refund equals the gross debit, not a new fee', async () => {
+    await enable({ p2pFeeRate: 0.01 });
+    const created = await processWithdrawal(deps(), plain, {
+      idempotencyKey: randomUUID(), method: 'p2p', amount: 400,
+      p2p: { paymentMethod: 'GCash', accountName: 'A', accountNumber: '0917' },
+    });
+    expect(created.feeAmount).toBe(4);
+    expect(await bal()).toBe(600);
+    const id = created.id as string;
+    const cancelled = await processP2pAction(deps(), plain, { withdrawalId: id, action: 'cancel', reason: 'no' }) as { newBalance: number; status: string };
+    expect(cancelled.status).toBe('CANCELLED');
+    expect(cancelled.newBalance).toBe(1000);
+    expect(await bal()).toBe(1000);
+    expect((await reqDoc(id)).feeAmount).toBe(4);
+    const id2 = (await processWithdrawal(deps(), plain, {
+      idempotencyKey: randomUUID(), method: 'p2p', amount: 100,
+      p2p: { paymentMethod: 'Maya', accountName: 'A', accountNumber: '0917' },
+    })).id as string;
+    await db.doc(`withdrawal_requests/${id2}`).set({
+      status: 'PENDING_CONFIRMATION', referenceNumber: 'REF1', proofImageUrl: 'https://example.invalid/p.webp',
+    }, { merge: true });
+    const before = await reqDoc(id2);
+    const confirmed = await processP2pAction(deps(), plain, { withdrawalId: id2, action: 'confirm' }) as { status: string };
+    expect(confirmed.status).toBe('APPROVED');
+    const after = await reqDoc(id2);
+    expect(after.amount).toBe(before.amount);
+    expect(after.feeAmount).toBe(before.feeAmount);
+    expect(after.netAmount).toBe(before.netAmount);
+    expect(await bal()).toBe(900);
+    expect((await err(processP2pAction(deps(), { uid: 'agt' }, { withdrawalId: id2, action: 'confirm' })))?.code).toBe('not-found');
+    expect((await reqDoc(id2)).status).toBe('APPROVED');
+    expect((await err(staffOps(moneyDeps(), agent, { idempotencyKey: randomUUID(), action: 'finalizeWithdrawal', withdrawalId: id2 })))?.code).toBe('invalid-argument');
+  });
+
+  it('every disagreeing owner alias, including a users/ or wallets/ prefix, refuses with no refund', async () => {
+    await enable({ dailyMaxCount: 20 });
+    for (const field of aliases) {
+      await db.doc(`users/${UID}`).set({ tyxBalance: 1000 }, { merge: true });
+      const id = (await processWithdrawal(deps(), plain, {
+        idempotencyKey: randomUUID(), method: 'p2p', amount: 100,
+        p2p: { paymentMethod: 'GCash', accountName: 'A', accountNumber: '0917' },
+      })).id as string;
+      const foreign = field === 'uid' ? 'users/user2' : 'wallets/user2';
+      await db.doc(`withdrawal_requests/${id}`).set({ [field]: foreign }, { merge: true });
+      const e = await err(processP2pAction(deps(), plain, { withdrawalId: id, action: 'cancel' })) as { code?: string; details?: { code?: string } } | null;
+      expect(e?.code).toBe('failed-precondition');
+      expect(e?.details?.code).toBe('OWNER_MISMATCH');
+      expect((await reqDoc(id)).status).toBe('WAITING_FOR_AGENT');
+      expect(await bal()).toBe(900);
+    }
+    await db.doc(`users/${UID}`).set({ tyxBalance: 1000 }, { merge: true });
+    const id = (await processWithdrawal(deps(), plain, {
+      idempotencyKey: randomUUID(), method: 'p2p', amount: 100,
+      p2p: { paymentMethod: 'GCash', accountName: 'A', accountNumber: '0917' },
+    })).id as string;
+    await db.doc(`withdrawal_requests/${id}`).set({ userId: 'users/user1', ownerId: ' wallets/user1 ' }, { merge: true });
+    const ok = await processP2pAction(deps(), plain, { withdrawalId: id, action: 'cancel' }) as { status: string };
+    expect(ok.status).toBe('CANCELLED');
+    expect(await bal()).toBe(1000);
+  });
+
+  it('only the claiming agent records proof; a second proof and a settled row stay frozen', async () => {
+    const id = (await processWithdrawal(deps(), plain, {
+      idempotencyKey: randomUUID(), method: 'p2p', amount: 200,
+      p2p: { paymentMethod: 'GCash', accountName: 'A', accountNumber: '0917' },
+    })).id as string;
+    const claimKey = 'claim_key_abcdef';
+    await staffOps(moneyDeps(), agent, { idempotencyKey: claimKey, action: 'claimWithdrawal', withdrawalId: id });
+    const mismatch = await err(staffOps(moneyDeps(), agent, {
+      idempotencyKey: claimKey, action: 'rejectWithdrawal', withdrawalId: id, reason: 'no',
+    })) as { details?: { code?: string } } | null;
+    expect(mismatch?.details?.code).toBe('IDEMPOTENCY_MISMATCH');
+    expect((await reqDoc(id)).status).toBe('AWAITING_AGENT_PAYMENT');
+    expect(await bal()).toBe(800);
+    expect((await db.collection('staff_audit_log').get()).size).toBe(1);
+    const proof = await staffOps(moneyDeps(), agent, {
+      idempotencyKey: randomUUID(), action: 'submitWithdrawalProof', withdrawalId: id,
+      referenceNumber: 'REF9', proofImageUrl: 'https://example.invalid/a.webp', amount: 1,
+    }) as { verifiedPayment: boolean };
+    expect(proof.verifiedPayment).toBe(false);
+    expect((await reqDoc(id)).amount).toBe(200);
+    const frozen = await err(staffOps(moneyDeps(), agent, {
+      idempotencyKey: randomUUID(), action: 'submitWithdrawalProof', withdrawalId: id,
+      referenceNumber: 'OTHER', proofImageUrl: 'https://example.invalid/b.webp',
+    })) as { details?: { code?: string } } | null;
+    expect(frozen?.details?.code).toBe('PROOF_FROZEN');
+    expect((await reqDoc(id)).referenceNumber).toBe('REF9');
+    expect((await err(staffOps(moneyDeps(), { uid: 'boss', token: { role: 'agent' } }, {
+      idempotencyKey: randomUUID(), action: 'submitWithdrawalProof', withdrawalId: id,
+      referenceNumber: 'REF9', proofImageUrl: 'https://example.invalid/a.webp',
+    })))?.code).toBe('permission-denied');
+    await processP2pAction(deps(), plain, { withdrawalId: id, action: 'confirm' });
+    const settled = await err(staffOps(moneyDeps(), agent, {
+      idempotencyKey: randomUUID(), action: 'submitWithdrawalProof', withdrawalId: id,
+      referenceNumber: 'REF9', proofImageUrl: 'https://example.invalid/a.webp',
+    })) as { details?: { code?: string } } | null;
+    expect(settled?.details?.code).toBe('SETTLED');
+    expect((await reqDoc(id)).status).toBe('APPROVED');
+    expect(await bal()).toBe(800);
+  });
+
+  it('concurrent cancel/claim and confirm/reject each settle exactly once', async () => {
+    const id = (await processWithdrawal(deps(), plain, {
+      idempotencyKey: randomUUID(), method: 'p2p', amount: 400,
+      p2p: { paymentMethod: 'GCash', accountName: 'A', accountNumber: '0917' },
+    })).id as string;
+    await Promise.allSettled([
+      processP2pAction(deps(), plain, { withdrawalId: id, action: 'cancel' }),
+      staffOps(moneyDeps(), agent, { idempotencyKey: randomUUID(), action: 'claimWithdrawal', withdrawalId: id }),
+    ]);
+    const d = await reqDoc(id);
+    if (d.status === 'CANCELLED') {
+      expect(await bal()).toBe(1000);
+      expect(d.agentId || '').toBe('');
+    } else {
+      expect(d.status).toBe('AWAITING_AGENT_PAYMENT');
+      expect(await bal()).toBe(600);
+    }
+    const id2 = (await processWithdrawal(deps(), plain, {
+      idempotencyKey: randomUUID(), method: 'p2p', amount: 100,
+      p2p: { paymentMethod: 'GCash', accountName: 'A', accountNumber: '0917' },
+    })).id as string;
+    await db.doc(`withdrawal_requests/${id2}`).set({
+      status: 'PENDING_CONFIRMATION', referenceNumber: 'R', proofImageUrl: 'https://example.invalid/p.webp', agentId: 'agt',
+    }, { merge: true });
+    const held = await bal();
+    await Promise.allSettled([
+      processP2pAction(deps(), plain, { withdrawalId: id2, action: 'confirm' }),
+      staffOps(moneyDeps(), agent, { idempotencyKey: randomUUID(), action: 'rejectWithdrawal', withdrawalId: id2, reason: 'missing' }),
+    ]);
+    const d2 = await reqDoc(id2);
+    expect(['APPROVED', 'REJECTED']).toContain(d2.status);
+    expect(await bal()).toBe(d2.status === 'APPROVED' ? held : held + 100);
+    expect(d2.amount).toBe(100);
+  });
+
+  it('manual Solana create debits only the target, ignores client fee and wallet, and does not resend or re-refund', async () => {
+    await seedUser({ tyxBalance: 1000, reservedBalance: 100 });
+    const blocked = await err(staffOps(moneyDeps(), staff, {
+      idempotencyKey: randomUUID(), action: 'createManualWithdrawal', targetUserId: UID,
+      method: 'solana', amount: 950, coin: 'USDT',
+    }, wire));
+    expect(blocked?.code).toBe('failed-precondition');
+    expect(await bal()).toBe(1000);
+    expect(payer.broadcasts).toHaveLength(0);
+
+    const key = randomUUID();
+    const created = await staffOps(moneyDeps(), staff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: UID, userId: 'users/user1',
+      method: 'solana', amount: 500, coin: 'USDT', feeAmount: 0, walletPublicKey: attacker,
+    }, wire) as { feeAmount: number; idempotentReplay?: boolean };
+    expect(created.feeAmount).toBe(10);
+    expect(created.idempotentReplay).toBe(false);
+    expect(await bal()).toBe(500);
+    expect(await bal('adm')).toBe(9000);
+    const doc = await reqDoc(key);
+    expect(doc.uid).toBe(UID);
+    expect(doc.walletPublicKey).toBe(wallet);
+    expect(doc.feeRate).toBe(0.02);
+    expect(payer.prepared.map((p) => p.recipient)).toEqual([wallet]);
+    expect(payer.broadcasts).toHaveLength(1);
+    const audits = await db.collection('staff_audit_log').get();
+    expect(audits.size).toBe(1);
+    expect(audits.docs[0].data()).toMatchObject({ actorUid: 'adm', targetUserId: UID, action: 'createManualWithdrawal' });
+
+    const replay = await staffOps(moneyDeps(), staff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: UID, method: 'solana', amount: 500, coin: 'USDT',
+    }, wire) as { replay?: boolean };
+    expect(replay.replay).toBe(true);
+    expect(await bal()).toBe(500);
+    expect(payer.broadcasts).toHaveLength(1);
+    expect((await db.collection('staff_audit_log').get()).size).toBe(1);
+
+    const foreign = await staffOps(moneyDeps(), otherStaff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: UID, method: 'solana', amount: 500, coin: 'USDT',
+    }, wire) as { replay?: boolean };
+    expect(foreign.replay).toBe(true);
+    expect(await bal()).toBe(500);
+    expect(payer.broadcasts).toHaveLength(1);
+    expect((await db.collection('staff_audit_log').get()).size).toBe(1);
+
+    const wrongTarget = await err(staffOps(moneyDeps(), staff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: 'user2', method: 'solana', amount: 500, coin: 'USDT',
+    }, wire)) as { details?: { code?: string } } | null;
+    expect(wrongTarget?.details?.code).toBe('IDEMPOTENCY_MISMATCH');
+    expect(await bal()).toBe(500);
+  });
+
+  it('an uncertain Solana broadcast stays debited and is not resent or refunded by a staff retry', async () => {
+    payer.broadcastError = new Error('timeout');
+    payer.outcomeNow = { state: 'waiting' };
+    const key = randomUUID();
+    const created = await staffOps(moneyDeps(), staff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: UID, method: 'solana', amount: 200, coin: 'SOL',
+    }, wire) as { payoutState: string };
+    expect(created.payoutState).toBe('pending_confirmation');
+    expect(await bal()).toBe(800);
+    expect(payer.broadcasts).toHaveLength(1);
+    expect((await reqDoc(key)).balanceDeducted).toBe(true);
+    payer.broadcasts.length = 0;
+    const again = await staffOps(moneyDeps(), staff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: UID, method: 'solana', amount: 200, coin: 'SOL',
+    }, wire) as { replay?: boolean };
+    expect(again.replay).toBe(true);
+    expect(payer.broadcasts).toHaveLength(0);
+    expect(payer.prepared).toHaveLength(1);
+    expect(await bal()).toBe(800);
+    expect((await reqDoc(key)).payoutState).toBe('pending_confirmation');
+  });
+
+  it('a prepare failure refunds the target once; a retry does not refund again or broadcast', async () => {
+    payer.prepareError = new Error('rpc down');
+    const key = randomUUID();
+    const created = await staffOps(moneyDeps(), staff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: UID, method: 'solana', amount: 200, coin: 'SOL',
+    }, wire) as { payoutState: string };
+    expect(created.payoutState).toBe('failed');
+    expect(await bal()).toBe(1000);
+    expect(payer.broadcasts).toHaveLength(0);
+    const again = await staffOps(moneyDeps(), staff, {
+      idempotencyKey: key, action: 'createManualWithdrawal', targetUserId: UID, method: 'solana', amount: 200, coin: 'SOL',
+    }, wire) as { replay?: boolean };
+    expect(again.replay).toBe(true);
+    expect(await bal()).toBe(1000);
+    expect(payer.prepared).toHaveLength(0);
+    expect(payer.broadcasts).toHaveLength(0);
   });
 });

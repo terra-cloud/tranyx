@@ -177,6 +177,11 @@ async function createStaffSolanaWithdrawal(
     amount: d.amount,
     coin: d.coin,
   });
+  // A reused withdrawal id (another actor, or this actor after the debit already committed) must not
+  // mint a second audit or touch the balance. processWithdrawal's own replay is the debit/send guard.
+  if (result.idempotentReplay === true || result.replay === true) {
+    return { ...result, replay: true };
+  }
   const opId = `${uid}_${key}`;
   await db.runTransaction(async (tx) => {
     const again = await tx.get(db.doc(`money_ops/${uid}_${key}`));
@@ -322,17 +327,17 @@ export async function staffOps(deps: MoneyDeps, auth: CallerAuth | undefined, da
       if (SETTLED_WITHDRAWAL.includes(status) || cur.payoutState === 'sent' || cur.payoutState === 'failed') {
         throw new HttpsError('failed-precondition', 'This cashout is already settled.', { code: 'SETTLED' });
       }
+      if (agentId && agentId !== uid) {
+        throw new HttpsError('permission-denied', 'Only the agent who claimed this cashout can submit proof.', { code: 'CLAIMED_BY_OTHER' });
+      }
       if (status === 'PENDING_CONFIRMATION') {
         if (str(cur.referenceNumber, 64) === referenceNumber && str(cur.proofImageUrl, 500) === proofImageUrl) {
           return done({ ok: true, id, status, alreadyDone: true, verifiedPayment: false }, { withdrawalId: id, owner, amount, referenceNumber });
         }
         throw new HttpsError('failed-precondition', 'Proof is already on this cashout and cannot be replaced.', { code: 'PROOF_FROZEN' });
       }
-      if (status !== 'AWAITING_AGENT_PAYMENT') {
+      if (status !== 'AWAITING_AGENT_PAYMENT' || !agentId) {
         throw new HttpsError('failed-precondition', 'Claim the cashout before submitting proof.', { code: 'NOT_CLAIMED', status });
-      }
-      if (!agentId || agentId !== uid) {
-        throw new HttpsError('permission-denied', 'Only the agent who claimed this cashout can submit proof.', { code: 'CLAIMED_BY_OTHER' });
       }
       const txMain = db.doc(`transactions/p2p_with_${id}`);
       const txWallet = db.doc(`wallets/${owner}/transactions/${id}`);
