@@ -152,7 +152,7 @@ Mobile still calls the old client cancel/confirm writes. Those rules now deny th
 
 ## App Check provider
 
-`packages/tranyx_web/web/index.html` loads Firebase JS 10.12.1 app-check-compat. In that build, `activate(siteKeyString)` constructs `ReCaptchaV3Provider` and exchanges `exchangeRecaptchaV3Token`. `activate(new ReCaptchaEnterpriseProvider(siteKey))` exchanges `exchangeRecaptchaEnterpriseToken` and loads `recaptcha/enterprise.js`. The web token helper now uses the Enterprise provider only. If that constructor is missing, it returns no token. Enforced callables stay fail-closed. The site key value is still the public `APPCHECK_SITE_KEY` define. This does not register the key in a Firebase project.
+`packages/tranyx_web/web/index.html` loads Firebase JS 10.12.1 app-check-compat. In that build, `activate(siteKeyString)` constructs `ReCaptchaV3Provider` and exchanges `exchangeRecaptchaV3Token`. `activate(new ReCaptchaEnterpriseProvider(siteKey))` exchanges `exchangeRecaptchaEnterpriseToken` and loads `recaptcha/enterprise.js`. The web token helper now uses the Enterprise provider only. If that constructor is missing, it returns no token. Enforced callables stay fail-closed. The production web build (`ENV=prod`) uses the public Fraud Defense site key in `kProdRecaptchaEnterpriseSiteKey`. Dev and UAT builds pass an empty key, so App Check stays off. A `APPCHECK_SITE_KEY` dart-define is not read.
 
 ## Expected-failure classification
 
@@ -173,6 +173,6 @@ Not money movement: CHAT-P1 (client `senderId: system`), CHAT-P3 (chat photo URL
 
 A compile with `ENV=dev` and empty defines is not a production build. Firebase web apiKey, projectId, and appId already live in `DefaultFirebaseConfig` and are public client config.
 
-Public values a real dev/uat/prod bundle needs when those features are used: `APPCHECK_SITE_KEY` (App Check site key), `SOLANA_PUBLIC_KEY` or `TREASURY_PUBLIC_KEY` (treasury address, not a secret), and `SOLANA_RPC_URL` if it does not contain an API key. `BASEMAPS_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` are client map keys.
+Public values a real bundle needs when those features are used: the production App Check site key (compiled in only for `ENV=prod`), `SOLANA_PUBLIC_KEY` or `TREASURY_PUBLIC_KEY` (treasury address, not a secret), and `SOLANA_RPC_URL` if it does not contain an API key. `BASEMAPS_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` are client map keys.
 
 Do not pass these into the Jaspr client: `XENDIT_SECRET_KEY` (no Dart reader; legacy CI define), `IMGBB_API_KEY` (the upload callable holds it; the client fallback must not be how production gets the key), `GEMINI_AI_API_KEY`, and `CLOUDFLARE_API_TOKEN`.

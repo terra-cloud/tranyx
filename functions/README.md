@@ -149,9 +149,10 @@ To avoid a one-time 24h wait for existing users, staff can pre-seed `payout_wall
 1. **Billing**: upgrade the project to Blaze, and add a budget + alerts (Console -> Billing -> Budgets & alerts).
 2. **Secret**: `firebase functions:secrets:set SOLANA_TREASURY_SECRET_KEY --project <id>` and paste a
    **freshly generated** treasury key (base58 or JSON byte array). Fund that wallet. Do not reuse the old key.
-3. **App Check**: Console -> App Check: register the web app (reCAPTCHA v3/Enterprise), copy the public
-   site key into the GitHub repo *variable* `APPCHECK_SITE_KEY`; register the Android app (Play Integrity)
-   and iOS app (App Attest/DeviceCheck); register debug tokens for debug builds.
+3. **App Check**: The tranyx-app web build uses the public reCAPTCHA Enterprise site key in
+   `kProdRecaptchaEnterpriseSiteKey` (`ReCaptchaEnterpriseProvider` only). Dev and UAT web builds have no
+   registered key and send no App Check token. Register the Android app (Play Integrity) and iOS app
+   (App Attest/DeviceCheck); register debug tokens for debug builds.
    Escape hatch while rolling out: `ENFORCE_APP_CHECK=false` in `.env.<id>` (re-enable afterwards).
 4. **Deploy order** (rules last, otherwise old clients that still write requests directly will break):
    `firebase deploy --only functions --project <id>`, then ship web/mobile builds, then
