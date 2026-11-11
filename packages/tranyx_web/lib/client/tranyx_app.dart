@@ -4858,17 +4858,13 @@ class TranyxAppState extends State<TranyxApp> {
 
       final svc = FirestoreService(token, _handleTokenRefresh);
 
-      // Create withdrawal request record with signature
-      await svc.createOrUpdate('withdrawalRequests/withdraw_$timestamp', {
-        'uid': uid,
-        'userName': userName,
+      // The connected-wallet check above is local. The debit, fee, and send use the
+      // verified linked wallet inside requestWithdrawal. The signature is not a payout authority.
+      await svc.callRequestWithdrawal({
+        'idempotencyKey': newIdempotencyKey(),
+        'method': 'solana',
         'amount': tyxBal,
-        'status': 'Pending',
-        'createdAt': timestamp,
-        'method': 'Solana',
-        'walletPublicKey': walletKey,
-        'signature': signature,
-        'message': message,
+        'coin': 'SOL',
       });
 
       setState(() {

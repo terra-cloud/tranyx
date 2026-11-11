@@ -45,9 +45,9 @@ describe('legacy flags are not money or treasury authority', () => {
     }
   });
 
-  it('a claim admin can note a claim, and cannot change escrow money fields', async () => {
+  it('a claim admin cannot client-note a claim, and cannot change escrow money fields', async () => {
     await prep();
-    await assertSucceeds(updateDoc(doc(adminClaim(), 'withdrawal_requests/wr1'), { status: 'AWAITING_AGENT_PAYMENT', agentId: 'realAdmin' }));
+    await assertFails(updateDoc(doc(adminClaim(), 'withdrawal_requests/wr1'), { status: 'AWAITING_AGENT_PAYMENT', agentId: 'realAdmin' }));
     await assertFails(updateDoc(doc(user('flag'), 'escrow/j1'), { status: 'refunded', amount: 0 }));
     await assertFails(updateDoc(doc(adminClaim(), 'escrow/j1'), { status: 'refunded', amount: 999999 }));
     await assertSucceeds(updateDoc(doc(adminClaim(), 'escrow/j1'), { updatedAt: 1 }));

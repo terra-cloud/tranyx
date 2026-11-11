@@ -121,6 +121,31 @@ Listing address, city, and map fields stay on the public job, property, and vehi
 
 `feat/fn-booking-charge` is already an ancestor of this branch. `fix/wallet-verified-deposits` is already merged (PR 93). Neither branch was merged again.
 
+## Withdrawal lifecycle
+
+Owner cancel and confirm are `updateP2pWithdrawal` (`action: 'cancel' | 'confirm'`). The caller must be the withdrawal owner. No staff claim is required. Cancel refunds `amount` once, only from `WAITING_FOR_AGENT`, `PENDING_REVIEW`, or `PENDING`, and only when `balanceDeducted` is true. Confirm moves `PENDING_CONFIRMATION` to `APPROVED` only when `referenceNumber` is set and `proofImageUrl` is https. It does not debit, credit, or send. Disagreeing owner aliases return `failed-precondition` / `OWNER_MISMATCH` and write nothing. A second confirm returns `alreadyDone`.
+
+`staffOps` `submitWithdrawalProof` is the claim holder only (`admin`, `staff`, or `agent` custom claim). Body: `withdrawalId`, `referenceNumber`, `proofImageUrl` (https). It sets `PENDING_CONFIRMATION` and does not change the balance or treat the image as a chain payment (`verifiedPayment: false`). A settled cashout returns `SETTLED`. A different proof after the first returns `PROOF_FROZEN`. Another agent's claim returns `CLAIMED_BY_OTHER`. The owner is `SELF_ACTION`. Same idempotency key used for a different action returns `IDEMPOTENCY_MISMATCH`.
+
+`staffOps` `createManualWithdrawal` is `admin` or `staff` only. Body: `targetUserId`, `method: 'solana'`, `amount`, `coin: 'SOL' | 'USDT'`, UUID `idempotencyKey`. Optional `uid` / `userId` / `ownerId` must be the same person. It calls `processWithdrawal` for that person: server fee, `wallet_verified` destination, one debit, then the existing Solana send. P2P is refused. Self-target is `SELF_ACTION`. An agent is `permission-denied`. There is no staff action that marks a P2P cashout paid. Owner confirm is the only P2P settlement. Solana settlement stays `executeSend` / `reconcileWithdrawals`.
+
+Web `agentClaimP2pWithdrawal`, `submitWithdrawalProof`, and `confirmP2pWithdrawalCompleted` call those functions. `cancelP2pWithdrawalRequest` already did. `handleWithdrawTyx` calls `requestWithdrawal` instead of writing `withdrawalRequests`. Client updates of `withdrawal_requests` and `withdrawalRequests` are denied. `payout_nyx_` and `deposit_sol_` / `deposit_usdt_` / `sub_sol_` / `onchain_` are not client-writable, including `isAdminOrStaff()`. `jobAction complete` and `creditOnchainPayment` still write them with the Admin SDK.
+
+Admin client (separate repo, selected workspace Auth and App Check, not a central-project token):
+
+| Action | Callable | Request | Success | Errors |
+| --- | --- | --- | --- | --- |
+| Claim | `staffOps` | `action: claimWithdrawal`, `withdrawalId`, `idempotencyKey` | `{ ok, id, status: AWAITING_AGENT_PAYMENT }` | `permission-denied`, `SELF_ACTION`, `NOT_CLAIMABLE`, `CLAIMED_BY_OTHER` |
+| Release | `staffOps` | `action: releaseClaim`, `withdrawalId` | `{ status: WAITING_FOR_AGENT }` | `permission-denied` unless claiming agent or admin |
+| Proof | `staffOps` | `action: submitWithdrawalProof`, `withdrawalId`, `referenceNumber`, `proofImageUrl` | `{ status: PENDING_CONFIRMATION, verifiedPayment: false }` | `SETTLED`, `PROOF_FROZEN`, `NOT_CLAIMED`, `CLAIMED_BY_OTHER`, `SELF_ACTION`, `invalid-argument` |
+| Reject | `staffOps` | `action: rejectWithdrawal`, `withdrawalId`, `reason` | `{ status: REJECTED, refunded }` | `SELF_ACTION`, not rejectable, other agent's claim |
+| Manual Solana | `staffOps` | `action: createManualWithdrawal`, `targetUserId`, `method: solana`, `amount`, `coin`, UUID `idempotencyKey` | `processWithdrawal` result (`id`, `amount`, `feeAmount`, `netAmount`, `payoutState`) | `SELF_ACTION`, `OWNER_MISMATCH`, `permission-denied`, P2P refused, `WALLET_NOT_VERIFIED`, `WALLET_MISMATCH` |
+| Owner cancel/confirm | `updateP2pWithdrawal` | `withdrawalId`, `action: cancel \| confirm`, optional `reason` | `{ ok, id, status, alreadyDone, newBalance? }` | `not-found` (not owner), `OWNER_MISMATCH`, `PROOF_REQUIRED`, `failed-precondition` |
+
+No staff finalize-as-paid action. Do not treat proof as a completed payout.
+
+Mobile still calls the old client cancel/confirm writes. Those rules now deny them. Mobile was not edited. It needs to call `updateP2pWithdrawal` before a rules deploy.
+
 ## Still open (next release-blocker batches, not in this patch)
 
 - No `staffOps` action for proof, finalize, or manual payout completion. Web still writes those itself: `FirebaseService.submitWithdrawalProof` and `confirmP2pWithdrawalCompleted`. Claim staff may still record a claim or proof on `withdrawal_requests`; approve, reject, and the balance stay on `staffOps`.

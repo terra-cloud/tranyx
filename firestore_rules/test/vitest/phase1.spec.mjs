@@ -10,22 +10,22 @@ const NOW = 1761123600000;
 
 describe('P1-WR: owner withdrawal flows that stay allowed', () => {
   for (const from of ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING']) {
-    it(`P1-WR-01-${from} [MUST-ALLOW] owner cancels own ${from} request (web firebase_service.dart:7922 full-doc payload)`, async () => {
+    it(`P1-WR-01-${from} [HIGH] owner cannot client-cancel ${from} (refund is updateP2pWithdrawal)`, async () => {
       await seed({ 'users/u1': userProfile('u1'), 'withdrawal_requests/wr1': withdrawal('u1', { status: from }), 'withdrawalRequests/wr1': withdrawal('u1', { status: from }) });
       const db = user('u1');
       for (const col of ['withdrawal_requests', 'withdrawalRequests'])
-        await assertSucceeds(setDoc(doc(db, `${col}/wr1`), { ...withdrawal('u1', { status: from }), status: 'CANCELLED', p2pStatus: 'CANCELLED', balanceDeducted: false, refundedAt: NOW, verifiedAt: NOW, updatedAt: NOW }));
+        await assertFails(setDoc(doc(db, `${col}/wr1`), { ...withdrawal('u1', { status: from }), status: 'CANCELLED', p2pStatus: 'CANCELLED', balanceDeducted: false, refundedAt: NOW, verifiedAt: NOW, updatedAt: NOW }));
     });
   }
-  it('P1-WR-02 [MUST-ALLOW] owner cancels via mobile merge payload (transit_repository.dart:3518)', async () => {
+  it('P1-WR-02 [HIGH] owner cannot client-cancel via a merge payload (refund is updateP2pWithdrawal)', async () => {
     await seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status: 'WAITING_FOR_AGENT' }) });
-    await assertSucceeds(setDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', rejectionReason: 'changed mind', verifiedAt: NOW }, { merge: true }));
+    await assertFails(setDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { status: 'CANCELLED', rejectionReason: 'changed mind', verifiedAt: NOW }, { merge: true }));
   });
-  it('P1-WR-03 [MUST-ALLOW] owner confirms receipt once agent sent proof (PENDING_CONFIRMATION -> APPROVED; firebase_service.dart:7844, transit_repository.dart:3546)', async () => {
+  it('P1-WR-03 [HIGH] owner cannot client-confirm receipt (settlement is updateP2pWithdrawal confirm)', async () => {
     await seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status: 'PENDING_CONFIRMATION' }), 'withdrawalRequests/wr1': withdrawal('u1', { status: 'PENDING_CONFIRMATION' }) });
     const db = user('u1');
-    await assertSucceeds(setDoc(doc(db, 'withdrawal_requests/wr1'), { ...withdrawal('u1', { status: 'PENDING_CONFIRMATION' }), status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: 'u1', verifiedAt: NOW, updatedAt: NOW }));
-    await assertSucceeds(setDoc(doc(db, 'withdrawalRequests/wr1'), { status: 'APPROVED', adminUid: 'u1', verifiedAt: NOW }, { merge: true }));
+    await assertFails(setDoc(doc(db, 'withdrawal_requests/wr1'), { ...withdrawal('u1', { status: 'PENDING_CONFIRMATION' }), status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: 'u1', verifiedAt: NOW, updatedAt: NOW }));
+    await assertFails(setDoc(doc(db, 'withdrawalRequests/wr1'), { status: 'APPROVED', adminUid: 'u1', verifiedAt: NOW }, { merge: true }));
   });
   it('P1-WR-04 [HIGH] owner cannot cancel+refund after an agent claimed it (AWAITING_AGENT_PAYMENT)', async () => {
     await seed({ 'withdrawal_requests/wr1': withdrawal('u1', { status: 'AWAITING_AGENT_PAYMENT', agentId: 'agent1' }) });
@@ -36,11 +36,11 @@ describe('P1-WR: owner withdrawal flows that stay allowed', () => {
     await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { accountNumber: '09998887777' }));
     await assertFails(updateDoc(doc(user('u1'), 'withdrawal_requests/wr1'), { uid: 'u2', userId: 'u2' }));
   });
-  it('P1-WR-06 [MUST-ALLOW] admin/agent claims, sends proof and rejects (agentClaimP2pWithdrawal, submitWithdrawalProof, rejectP2pWithdrawalOrder)', async () => {
+  it('P1-WR-06 [HIGH] staff cannot client-claim, attach proof, or reject (those are staffOps)', async () => {
     await seed({ 'withdrawal_requests/wr1': withdrawal('u1') });
     const db = adminClaim();
-    await assertSucceeds(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'AWAITING_AGENT_PAYMENT', agentId: 'realAdmin', claimedAt: NOW }));
-    await assertSucceeds(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'PENDING_CONFIRMATION', proofImageUrl: 'https://example.invalid/p.webp' }));
+    await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'AWAITING_AGENT_PAYMENT', agentId: 'realAdmin', claimedAt: NOW }));
+    await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'PENDING_CONFIRMATION', proofImageUrl: 'https://example.invalid/p.webp' }));
     await assertFails(updateDoc(doc(db, 'withdrawal_requests/wr1'), { status: 'REJECTED', amount: 500 }));
   });
 });
