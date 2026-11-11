@@ -22,17 +22,17 @@ Do not set a Hosting `target`. The `.firebaserc` target `tranyx-web-app` lists `
 
 ## 1. Pre-flight
 
-```bash
-npx firebase-tools@15.5.1 --version
-npx firebase-tools@15.5.1 login:list
-npx firebase-tools@15.5.1 projects:list
-```
+Production deploys do not run from a laptop. They run in GitHub Actions from the secrets stored there.
 
-The account in `login:list` must be allowed to deploy `tranyx-app`. `projects:list` must include `tranyx-app`.
+Confirm these GitHub Actions secret **names** exist on `terra-cloud/tranyx` (Settings → Secrets). Do not print the values.
 
-### Confirm Secret Manager names
+- `SOLANA_TREASURY_SECRET_KEY`
+- `IMGBB_API_KEY`
+- `FIREBASE_SERVICE_ACCOUNT_TRANYX_APP`
 
-`requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` need `SOLANA_TREASURY_SECRET_KEY`. `uploadImageProxy` needs `IMGBB_API_KEY`. A missing name fails the functions deploy. These commands print metadata only, not the secret value. Do not run `firebase functions:secrets:get` or `gcloud secrets versions access`.
+`requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` read `SOLANA_TREASURY_SECRET_KEY` with `defineSecret`. `uploadImageProxy` reads `IMGBB_API_KEY` the same way. A GitHub secret is not visible to Cloud Functions until the workflow copies it into Secret Manager. The `main` deploy does that copy, then deploys. If either GitHub secret is missing, that job fails before deploy.
+
+After the workflow succeeds, these commands show metadata only:
 
 ```bash
 gcloud secrets describe SOLANA_TREASURY_SECRET_KEY --project tranyx-app
@@ -40,6 +40,8 @@ gcloud secrets describe IMGBB_API_KEY --project tranyx-app
 gcloud secrets versions list SOLANA_TREASURY_SECRET_KEY --project tranyx-app
 gcloud secrets versions list IMGBB_API_KEY --project tranyx-app
 ```
+
+Do not run `firebase functions:secrets:get` or `gcloud secrets versions access`.
 
 Params already named in `functions/.env.tranyx-app` (values stay in that file, not in chat):
 
@@ -64,30 +66,21 @@ Branch protection in `.github/workflows/ruleset.yml`:
 - `uat` accepts a merge only from `develop`
 - `main` accepts a merge only from `uat`
 
-Do this merge **after** steps 3–6, not before. Pushing `main` is the production web deploy.
+One push to `main` deploys functions, rules, indexes, and hosting together. Run the claims sync and the public-profile backfill first. Claims and the profile cards have to exist before that push, or staff money actions fail and counterparties lose profile reads the moment the rules land.
 
-```bash
-git fetch origin
-git checkout uat && git pull origin uat
-git merge origin/develop
-git push origin uat
+Workflow **Deploy hosting and production functions** (`.github/workflows/jaspr-hosting-merge.yml`) runs on a push to `main`, `uat`, or `develop` when web, shared, functions, rules, or index files changed.
 
-git checkout main && git pull origin main
-git merge origin/uat
-git push origin main
-```
+For `github.ref_name == main` and a backend change, in this order:
 
-On that `main` push, if `packages/tranyx_web/**`, `packages/shared/**`, or the hosting workflow changed:
+1. `firebase functions:secrets:set` for `SOLANA_TREASURY_SECRET_KEY` and `IMGBB_API_KEY`, reading the GitHub Actions secrets on stdin (`--data-file=-`). That writes Google Secret Manager on `tranyx-app`. It does not print the values.
+2. `firebase deploy --only functions,firestore:rules,firestore:indexes --project tranyx-app`.
+3. If web files changed, Hosting channel `live` on the default site `tranyx-app`. Live URLs: https://tranyx-app.web.app and https://tranyx.app.
 
-- `.github/workflows/jaspr-hosting-merge.yml` builds with `ENV=prod` and deploys Hosting channel `live` on project `tranyx-app`, site `tranyx-app`.
-- Live URLs: https://tranyx-app.web.app and https://tranyx.app.
-- A failed production hosting deploy fails the job.
+A failure in the functions, rules, or production hosting step fails the job. Dev and UAT pushes still deploy only their own hosting projects. They do not deploy functions or rules.
 
 A push to `main` does not publish mobile. `.github/workflows/tranyx-mobile-publish.yml` stays in the repo and does not run its job unless `PUBLISH_MOBILE` is `true` or someone starts the workflow manually.
 
-No workflow deploys functions, Firestore rules, or indexes. Those stay manual, below.
-
-## 3. Staff claims, before functions and rules
+## 3. Staff claims, before the main push
 
 Source of truth: `users` on `tranyx-admin` where `isAdmin`, `isStaff`, or `isSuperAdmin` is true. Admin and superadmin get `{ admin: true, role: 'admin' }`. Staff-only get `{ admin: false, role: 'staff' }`.
 
@@ -105,17 +98,7 @@ The first command only prints `grant` and `wouldRevoke`. The second writes claim
 
 Each staff and admin person signs out of the web app and signs back in. An existing ID token keeps the old claims until then. New rules and `staffOps` ignore `users.isAdmin` / `users.isStaff` document flags.
 
-## 4. Functions
-
-Still before the rules, and only after step 3.
-
-```bash
-npx firebase-tools@15.5.1 deploy --only functions --project tranyx-app
-```
-
-This uses `functions/.env.tranyx-app` and the two secrets from step 1. `staffOps` requires `SOLANA_TREASURY_SECRET_KEY` and a custom claim. Staff who have not signed in again still fail closed until they do.
-
-## 5. Public profile backfill, before the rules
+## 4. Public profile backfill, before the main push
 
 After the rules deploy, clients can no longer read another person's `users/{uid}`. Counterparties need `public_profiles/{uid}` first. The tool copies only the public card (name, photo, headline, skills, rating, and the other allowlisted fields). It does not copy email, phone, wallet, balances, KYC, or `idVerified`.
 
@@ -128,28 +111,33 @@ node tool/backfill_public_profiles.mjs --project tranyx-app --allow-prod --apply
 
 Dry-run prints uids and field names. Apply logs each `set`. A second apply skips cards that already match. Each write is also recorded at `purge_audit/public_profiles_<timestamp>` when at least one card changed.
 
-## 6. Rules and indexes, after claims
+## 5. Push main
+
+This is the production deploy. Do it only after steps 3 and 4. The workflow deploys functions, rules, indexes, and hosting in one job. Do not run `firebase deploy` from a laptop.
 
 ```bash
-npx firebase-tools@15.5.1 deploy --only firestore:rules,firestore:indexes --project tranyx-app
+git fetch origin
+git checkout uat && git pull origin uat
+git merge origin/develop
+git push origin uat
+
+git checkout main && git pull origin main
+git merge origin/uat
+git push origin main
 ```
 
-Rules in this deploy:
+Rules in that deploy:
 
 - staff and admin money paths require the custom claims from step 3
 - `users/{uid}` is readable by the owner or claim staff; other people use `public_profiles/{uid}`
 - exact listing address and coordinates are not client-writable on the public job, property, or vehicle document
 - `{jobs|properties|rentals}/{id}/private/location` is readable by any signed-in user
 
-Index builds do not block reads. Wait until the rules deploy reports success before the web merge.
+`staffOps` requires `SOLANA_TREASURY_SECRET_KEY` in Secret Manager and a custom claim. Staff who have not signed in again still fail closed until they do.
 
-## 7. Web hosting
+Wait until the GitHub job is green. The release is then live at https://tranyx-app.web.app and https://tranyx.app.
 
-Merging `uat` into `main` (step 2) is the production hosting deploy when web files changed. Do that now.
-
-The job fails if `Deploy to Firebase Hosting (prod)` fails. The release is live at https://tranyx-app.web.app and https://tranyx.app.
-
-If you deploy hosting by hand instead, from a checkout of the release SHA, with the same defines the workflow uses (values come from GitHub Actions secrets and variables; do not echo them):
+There is no laptop fallback for this deploy. If you ever rebuild the web by hand, the defines match the workflow (values come from GitHub Actions secrets and variables; do not echo them):
 
 ```bash
 cd packages/tranyx_web
@@ -167,7 +155,7 @@ That command has no Hosting target, so it publishes the default site `tranyx-app
 
 `ENV=prod` bakes in the reCAPTCHA Enterprise site key and `ReCaptchaEnterpriseProvider`. Do not pass `APPCHECK_SITE_KEY`. Do not use the old `6LfRz...` key.
 
-## 8. Listing addresses, then completion codes
+## 6. Listing addresses, then completion codes
 
 Run these only after the new web and the new rules are both live. The new client reads exact coordinates from `private/location`. Moving them earlier hides addresses from the previous web.
 
@@ -186,7 +174,7 @@ Dry-run lists document ids and field names. It does not print street addresses o
 
 `--apply` without `--allow-prod`, or with `--project tranyx-dev` or `--project tranyx-uat`, exits before writing.
 
-## 9. Smoke test
+## 7. Smoke test
 
 Use a real signed-in account and a staff account that has signed out and back in since step 3.
 
@@ -197,33 +185,15 @@ Use a real signed-in account and a staff account that has signed out and back in
 - **Deposit.** Send one small on-chain deposit from a verified wallet. Confirm the balance increases once. Refresh and confirm it does not increase again for the same signature.
 - **Withdrawal.** Request one Solana withdrawal at the configured minimum (`config/withdrawals.minPhp`, default 100 PHP). Confirm one debit, one withdrawal document, and no second debit if you retry the same action.
 
-## 10. Rollback
+## 8. Rollback
 
-Pick the last known-good git SHA (`<previous-sha>` below) before this release.
+Revert the release commit on `main` and push. That runs the same workflow again: it rewrites the two Secret Manager versions from the GitHub secrets, then deploys the previous functions, rules, indexes, and hosting. Do not delete functions.
 
-Rules:
-
-```bash
-git checkout <previous-sha> -- firestore.rules
-npx firebase-tools@15.5.1 deploy --only firestore:rules --project tranyx-app
-git checkout HEAD -- firestore.rules
-```
-
-Hosting:
+Hosting only, from a machine that is already logged into `tranyx-app`:
 
 ```bash
 npx firebase-tools@15.5.1 hosting:releases:list --project tranyx-app
 npx firebase-tools@15.5.1 hosting:rollback --project tranyx-app
-```
-
-If `hosting:rollback` is not in the CLI, check out `<previous-sha>` and run the manual `jaspr build --dart-define=ENV=prod` plus `deploy --only hosting --project tranyx-app` from step 7.
-
-Functions. Redeploy the previous source. Do not delete functions.
-
-```bash
-git checkout <previous-sha>
-npx firebase-tools@15.5.1 deploy --only functions --project tranyx-app
-git checkout -
 ```
 
 Data migrations are not reversed by a redeploy. Restoring a public street address or a completion code means restoring those fields from a backup, not from git. Do not run a second `--apply` as a rollback; a second apply is a no-op on already migrated documents.
