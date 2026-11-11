@@ -18,6 +18,10 @@
  * Credentials (never commit these files):
  *   ADMIN_GOOGLE_APPLICATION_CREDENTIALS  read users on tranyx-admin
  *   TARGET_GOOGLE_APPLICATION_CREDENTIALS Firebase Auth Admin on the target
+ *
+ * firebase-admin is not a root dependency. This script loads the modular
+ * entry points from functions/node_modules (firebase-admin 14 has no
+ * admin.credential). If that folder is missing, run: npm install --prefix functions
  */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -26,7 +30,9 @@ import { fileURLToPath } from 'node:url';
 import { credentialPath, logWrite, refuseLive } from './live_target.mjs';
 
 const require = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../functions/package.json'));
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore } = require('firebase-admin/firestore');
 
 const args = process.argv.slice(2);
 const revoke = args.includes('--revoke');
@@ -54,10 +60,10 @@ if (gate.apply && !credentialPath()) {
   process.exit(2);
 }
 
-const sourceApp = admin.initializeApp({ credential: admin.credential.cert(sourceCred), projectId: sourceProject }, 'source');
-const targetApp = admin.initializeApp({ credential: admin.credential.cert(targetCred), projectId: gate.project }, 'target');
-const sourceDb = sourceApp.firestore();
-const targetAuth = targetApp.auth();
+const sourceApp = initializeApp({ credential: cert(sourceCred), projectId: sourceProject }, 'source');
+const targetApp = initializeApp({ credential: cert(targetCred), projectId: gate.project }, 'target');
+const sourceDb = getFirestore(sourceApp);
+const targetAuth = getAuth(targetApp);
 
 const snap = await sourceDb.collection('users').get();
 const wanted = new Map();
