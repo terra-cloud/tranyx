@@ -115,6 +115,17 @@ service cloud.firestore {
       return isAdminTokenOrEmail();
     }
 
+    // Booking request party. renterId is the escrow alias of renteeId; uid/userId are older request shapes.
+    function isBookingRequestParty(data) {
+      return isAuthenticated() && (
+        data.get('hostId', '') == request.auth.uid ||
+        data.get('renteeId', '') == request.auth.uid ||
+        data.get('renterId', '') == request.auth.uid ||
+        data.get('uid', '') == request.auth.uid ||
+        data.get('userId', '') == request.auth.uid
+      );
+    }
+
     // Claim-admin metadata touch only. Amount, status, and party fields stay on the money callables.
     function clientEscrowUpdateOk() {
       return isClaimAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -281,6 +292,7 @@ service cloud.firestore {
           request.resource.data.get('isPremium', false) == false &&
           request.resource.data.get('premiumUntil', null) == null &&
           request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          request.resource.data.get('terraPoints', 0) == 0 &&
           !request.resource.data.keys().hasAny([
             'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
             'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
@@ -295,6 +307,7 @@ service cloud.firestore {
           request.resource.data.get('isPremium', false) == false &&
           request.resource.data.get('premiumUntil', null) == null &&
           request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          request.resource.data.get('terraPoints', 0) == 0 &&
           !request.resource.data.keys().hasAny([
             'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
             'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
@@ -309,7 +322,7 @@ service cloud.firestore {
           'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount',
           'subscriptionTxId', 'subscriptionStatus',
           // Money (server-only): tyxBalance / reservedBalance move only through Cloud Functions or staff.
-          'tyxBalance', 'reservedBalance'
+          'tyxBalance', 'reservedBalance', 'terraPoints'
         ]) && ownerPremiumNotRaised())
         || 
         // 2a. Admin custom claim: moderation, privilege, and entitlement fields. NOT the balance.
@@ -322,7 +335,7 @@ service cloud.firestore {
           'role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent',
           'isPremium', 'premiumUntil', 'accountType',
           'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
-          'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
+          'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus', 'terraPoints'
         ]))
         ||
         // 3. Owner's pending subscription request bookkeeping (grants nothing; staff approve it)
@@ -358,7 +371,8 @@ service cloud.firestore {
 
       // User Points subcollection
       match /points/{docId} {
-        allow read, write: if isOwner(userId) || isAdminOrStaff();
+        allow read: if isOwner(userId) || isClaimStaff();
+        allow write: if isClaimAdmin();
       }
     }
 
@@ -714,7 +728,10 @@ service cloud.firestore {
     }
 
     match /rental_requests/{requestId} {
-      allow read: if isAuthenticated();
+      // Participants (host, renter, or the rentee/renterId/uid aliases) and claim staff only.
+      // A rentalId-only list is not a party constraint, so strangers cannot read a listing's requests.
+      // Public listing docs stay on /rentals. Collection-group queries have no separate allow.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff.
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/rental_escrows/$(requestId))) || isAdminOrStaff();
@@ -1111,7 +1128,8 @@ service cloud.firestore {
 
     // Property Requests Collection
     match /property_requests/{requestId} {
-      allow read: if isAuthenticated();
+      // Same party rule as rental_requests. Public listing docs stay on /properties.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff. See requestPartyUpdateOk (20_workspace_rentals).
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/property_escrows/$(requestId))) || isAdminOrStaff();

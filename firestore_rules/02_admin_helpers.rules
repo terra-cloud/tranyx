@@ -64,6 +64,17 @@
       return isAdminTokenOrEmail();
     }
 
+    // Booking request party. renterId is the escrow alias of renteeId; uid/userId are older request shapes.
+    function isBookingRequestParty(data) {
+      return isAuthenticated() && (
+        data.get('hostId', '') == request.auth.uid ||
+        data.get('renteeId', '') == request.auth.uid ||
+        data.get('renterId', '') == request.auth.uid ||
+        data.get('uid', '') == request.auth.uid ||
+        data.get('userId', '') == request.auth.uid
+      );
+    }
+
     // Claim-admin metadata touch only. Amount, status, and party fields stay on the money callables.
     function clientEscrowUpdateOk() {
       return isClaimAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
