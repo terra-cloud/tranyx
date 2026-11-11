@@ -7,6 +7,7 @@ import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
 import '../utils/geo_helper.dart';
+import '../utils/listing_privacy.dart';
 import '../../components/map_container.dart';
 import '../../services/map_interop.dart';
 
@@ -215,10 +216,13 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           if (monthly <= 0) return false;
         }
 
-        final double pickupLat = (r['pickupLat'] as num?)?.toDouble() ?? 14.5995;
-        final double pickupLng = (r['pickupLng'] as num?)?.toDouble() ?? 120.9842;
-        final double distKm = calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng);
-        if (s.geofenceRadius < 999.0 && distKm > s.geofenceRadius) return false;
+        final signedIn = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
+        final double? pickupLat = (r['pickupLat'] as num?)?.toDouble();
+        final double? pickupLng = (r['pickupLng'] as num?)?.toDouble();
+        if (signedIn && pickupLat != null && pickupLng != null && s.geofenceRadius < 999.0) {
+          final distKm = calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng);
+          if (distKm > s.geofenceRadius) return false;
+        }
 
         if (_maxPrice != null) {
           final priceVal = r['priceDaily'] ?? r['dailyRate'];
@@ -228,16 +232,21 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return true;
       }).toList();
 
-      // Sort by distance (closest first)
+      final signedInBrowse = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
       availableRentals.sort((rentalA, rentalB) {
-        final aLat = (rentalA['pickupLat'] as num?)?.toDouble() ?? 14.5995;
-        final aLng = (rentalA['pickupLng'] as num?)?.toDouble() ?? 120.9842;
-        final aDist = calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng);
-
-        final bLat = (rentalB['pickupLat'] as num?)?.toDouble() ?? 14.5995;
-        final bLng = (rentalB['pickupLng'] as num?)?.toDouble() ?? 120.9842;
-        final bDist = calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng);
-
+        if (!signedInBrowse) {
+          return (rentalA['brand'] ?? '').toString().compareTo((rentalB['brand'] ?? '').toString());
+        }
+        final aLat = (rentalA['pickupLat'] as num?)?.toDouble();
+        final aLng = (rentalA['pickupLng'] as num?)?.toDouble();
+        final bLat = (rentalB['pickupLat'] as num?)?.toDouble();
+        final bLng = (rentalB['pickupLng'] as num?)?.toDouble();
+        final aDist = (aLat != null && aLng != null)
+            ? calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng)
+            : double.infinity;
+        final bDist = (bLat != null && bLng != null)
+            ? calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng)
+            : double.infinity;
         return aDist.compareTo(bDist);
       });
 
@@ -297,7 +306,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                 'p-10 rounded-2xl border border-dashed ${isDark ? "border-zinc-800 text-zinc-500 bg-zinc-900/10" : "border-zinc-200 text-zinc-400 bg-zinc-50/50"} text-center font-medium',
             [Component.text('No matching vehicles available for rent.')],
           )
-        else if (_rentalsMapView)
+        else if (_rentalsMapView && viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid))
           _RentalsMap(
             key: ValueKey('rentals-map-${availableRentals.map((r) => r['id']).join(',').hashCode}-${isDark ? 'd' : 'l'}'),
             isDark: isDark,
@@ -374,8 +383,11 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         if (_selectedCategory != null && prop.category != _selectedCategory) return false;
         if (_selectedType != null && prop.type != _selectedType) return false;
 
-        final double distKm = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
-        if (s.geofenceRadius < 999.0 && distKm > s.geofenceRadius) return false;
+        final signedIn = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
+        if (signedIn && s.geofenceRadius < 999.0 && (prop.latitude != 0 || prop.longitude != 0)) {
+          final distKm = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
+          if (distKm > s.geofenceRadius) return false;
+        }
 
         // Apply Rent Option / Duration filter
         if (_selectedDurationFilter == 'daily' && prop.priceDaily <= 0 && prop.priceMonthly <= 0) return false;
@@ -409,8 +421,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         return true;
       }).toList();
 
-      // Sort by distance (closest first)
+      final signedInProperties = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
       availableProperties.sort((propA, propB) {
+        if (!signedInProperties) return propA.title.compareTo(propB.title);
         final aDist = calculateDistance(s.userLatitude, s.userLongitude, propA.latitude, propA.longitude);
         final bDist = calculateDistance(s.userLatitude, s.userLongitude, propB.latitude, propB.longitude);
         return aDist.compareTo(bDist);
@@ -639,9 +652,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final field =
         'text-xs h-10 px-3 rounded-xl border outline-none cursor-pointer '
         '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-100" : "bg-white border-[#e4e4e7] text-[#18181b]"}';
-    final distLabel = s.geofenceRadius >= 999.0
-        ? 'any distance'
-        : 'within ${s.geofenceRadius.toStringAsFixed(0)} km';
+    final signedIn = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
+    final distLabel = !signedIn
+        ? ''
+        : (s.geofenceRadius >= 999.0
+            ? 'any distance'
+            : 'within ${s.geofenceRadius.toStringAsFixed(0)} km');
     return div(classes: 'space-y-3', [
       div(classes: 'flex flex-wrap items-end gap-3', [
         _lab('Search', isDark, div(
@@ -729,10 +745,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       div(classes: 'flex items-center justify-between gap-3', [
         p(classes: 'm-0 text-xs font-medium ${isDark ? "text-zinc-400" : "text-[#71717a]"}', [
           Component.text(
-            '$resultCount vehicle${resultCount == 1 ? "" : "s"} $distLabel of you',
+            signedIn
+                ? '$resultCount vehicle${resultCount == 1 ? "" : "s"} $distLabel of you'
+                : '$resultCount vehicle${resultCount == 1 ? "" : "s"} · $kPublicAddressMask',
           ),
         ]),
-        div(classes: 'hidden md:flex items-center gap-1', [
+        if (signedIn) div(classes: 'hidden md:flex items-center gap-1', [
           button(
             classes:
                 'h-9 px-3 rounded-lg text-xs font-semibold border cursor-pointer '
@@ -762,9 +780,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final field =
         'text-xs h-10 px-3 rounded-xl border outline-none cursor-pointer '
         '${isDark ? "bg-zinc-900 border-zinc-700 text-zinc-100" : "bg-white border-[#e4e4e7] text-[#18181b]"}';
-    final distLabel = s.geofenceRadius >= 999.0
-        ? 'any distance'
-        : 'within ${s.geofenceRadius.toStringAsFixed(0)} km';
+    final signedIn = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
+    final distLabel = !signedIn
+        ? ''
+        : (s.geofenceRadius >= 999.0
+            ? 'any distance'
+            : 'within ${s.geofenceRadius.toStringAsFixed(0)} km');
     return div(classes: 'space-y-3', [
       div(classes: 'flex flex-wrap items-center gap-3', [
         div(
@@ -872,7 +893,9 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
         ),
       ]),
       p(classes: 'm-0 text-xs font-medium ${isDark ? "text-zinc-400" : "text-[#71717a]"}', [
-        Component.text('$resultCount ${resultCount == 1 ? "property" : "properties"} $distLabel of you'),
+        Component.text(signedIn
+            ? '$resultCount ${resultCount == 1 ? "property" : "properties"} $distLabel of you'
+            : '$resultCount ${resultCount == 1 ? "property" : "properties"} · $kPublicAddressMask'),
       ]),
     ]);
   }
@@ -1524,9 +1547,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final priceVal = r['priceDaily'] ?? r['dailyRate'];
     final priceStr = (priceVal != null && priceVal.toString().toLowerCase() != 'null') ? priceVal.toString() : '0';
 
-    final double pickupLat = (r['pickupLat'] as num?)?.toDouble() ?? 14.5995;
-    final double pickupLng = (r['pickupLng'] as num?)?.toDouble() ?? 120.9842;
-    final double distKm = calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng);
+    final signedIn = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
+    final double? pickupLat = (r['pickupLat'] as num?)?.toDouble();
+    final double? pickupLng = (r['pickupLng'] as num?)?.toDouble();
+    final String locationLabel = signedIn && pickupLat != null && pickupLng != null
+        ? '${calculateDistance(s.userLatitude, s.userLongitude, pickupLat, pickupLng).toStringAsFixed(1)} km'
+        : kPublicAddressMask;
 
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-purple-500/40'
@@ -1724,7 +1750,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             p(classes: 'font-bold text-lg text-purple-400', [Component.text('₱ $priceStr/day')]),
             div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
               lIcon('map-pin', cls: 'w-3 h-3'),
-              Component.text(' ${distKm.toStringAsFixed(1)} km'),
+              Component.text(' $locationLabel'),
             ]),
           ]),
 
@@ -1859,7 +1885,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   Component _propertyCard(PropertyRental prop, bool isDark, {bool isHostView = false}) {
     final s = component.state;
     final monthly = prop.priceMonthly;
-    final double distKm = calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude);
+    final signedIn = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
+    final String locationLabel = signedIn && (prop.latitude != 0 || prop.longitude != 0)
+        ? '${calculateDistance(s.userLatitude, s.userLongitude, prop.latitude, prop.longitude).toStringAsFixed(1)} km'
+        : kPublicAddressMask;
 
     final cardCls = isDark
         ? 'bg-zinc-900 border-zinc-800 hover:border-purple-500/40'
@@ -1944,7 +1973,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
             p(classes: 'font-bold text-lg text-purple-400', [Component.text('₱ ${monthly.toStringAsFixed(0)}/mo')]),
             div(classes: 'flex items-center gap-1 text-xs ${isDark ? "text-zinc-500" : "text-zinc-500"}', [
               lIcon('map-pin', cls: 'w-3 h-3'),
-              Component.text(' ${distKm.toStringAsFixed(1)} km'),
+              Component.text(' $locationLabel'),
             ]),
           ]),
 

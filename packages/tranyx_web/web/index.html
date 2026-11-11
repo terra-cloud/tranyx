@@ -1431,6 +1431,26 @@
       firebase.firestore().collection('notifications').doc(notifId).update({ isRead: true });
     };
 
+    async function withListingLocations(db, collectionName, docs) {
+      if (!firebase.auth().currentUser || !docs.length) return docs;
+      return Promise.all(docs.map(async function (doc) {
+        try {
+          const loc = await db.collection(collectionName).doc(doc.id).collection('private').doc('location').get();
+          return loc.exists ? Object.assign({}, doc, loc.data()) : doc;
+        } catch (e) {
+          return doc;
+        }
+      }));
+    }
+
+    function emitListingDocs(db, collectionName, docs, callback) {
+      if (!firebase.auth().currentUser) {
+        callback(docs);
+        return;
+      }
+      withListingLocations(db, collectionName, docs).then(callback);
+    }
+
     window.listenToJobs = function (uid, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
@@ -1440,7 +1460,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify({ type: 'employer', jobs: list }));
+          emitListingDocs(db, 'jobs', list, function (jobs) {
+            callback(JSON.stringify({ type: 'employer', jobs: jobs }));
+          });
         }, (error) => {
           console.error("Employer jobs listener error:", error);
         });
@@ -1450,7 +1472,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify({ type: 'nyxian', jobs: list }));
+          emitListingDocs(db, 'jobs', list, function (jobs) {
+            callback(JSON.stringify({ type: 'nyxian', jobs: jobs }));
+          });
         }, (error) => {
           console.error("Nyxian jobs listener error:", error);
         });
@@ -1461,7 +1485,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify({ type: 'open_jobs', jobs: list }));
+          emitListingDocs(db, 'jobs', list, function (jobs) {
+            callback(JSON.stringify({ type: 'open_jobs', jobs: jobs }));
+          });
         }, (error) => {
           console.error("Open jobs listener error:", error);
         });
@@ -1499,11 +1525,38 @@
         }
       };
 
+      let privateLocation = null;
+      let unsubLoc = null;
+      const emitJob = () => {
+        if (!currentJobData) return;
+        const merged = privateLocation ? Object.assign({}, currentJobData, privateLocation) : currentJobData;
+        callback(JSON.stringify({ type: 'job', data: Object.assign({}, merged, { id: jobId }) }));
+      };
+      const bindLocation = (user) => {
+        if (unsubLoc) {
+          unsubLoc();
+          unsubLoc = null;
+        }
+        privateLocation = null;
+        if (!user || isUnsubscribed) {
+          emitJob();
+          return;
+        }
+        unsubLoc = db.collection('jobs').doc(jobId).collection('private').doc('location')
+          .onSnapshot((loc) => {
+            privateLocation = loc.exists ? loc.data() : null;
+            emitJob();
+          }, () => {
+            privateLocation = null;
+            emitJob();
+          });
+      };
+
       const unsubJob = db.collection('jobs').doc(jobId)
         .onSnapshot((doc) => {
           if (doc.exists) {
             currentJobData = doc.data();
-            callback(JSON.stringify({ type: 'job', data: { ...currentJobData, id: doc.id } }));
+            emitJob();
             setupAppsListener(firebase.auth().currentUser);
           }
         }, (error) => {
@@ -1512,15 +1565,15 @@
 
       const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
         setupAppsListener(user);
+        bindLocation(user);
       });
 
       return () => {
         isUnsubscribed = true;
         unsubJob();
         unsubAuth();
-        if (unsubApps) {
-          unsubApps();
-        }
+        if (unsubApps) unsubApps();
+        if (unsubLoc) unsubLoc();
       };
     };
 
@@ -1531,7 +1584,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify(list));
+          emitListingDocs(db, 'rentals', list, function (merged) {
+            callback(JSON.stringify(merged));
+          });
         }, (error) => {
           console.error("Rentals list listener error:", error);
         });
@@ -1541,15 +1596,48 @@
     window.listenToRentalDetails = function (rentalId, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
+      let publicData = null;
+      let privateLocation = null;
+      let unsubLoc = null;
+      const emit = () => {
+        if (!publicData) return;
+        const merged = privateLocation ? Object.assign({}, publicData, privateLocation) : publicData;
+        callback(JSON.stringify(Object.assign({}, merged, { id: rentalId })));
+      };
+      const bindLocation = (user) => {
+        if (unsubLoc) {
+          unsubLoc();
+          unsubLoc = null;
+        }
+        privateLocation = null;
+        if (!user) {
+          emit();
+          return;
+        }
+        unsubLoc = db.collection('rentals').doc(rentalId).collection('private').doc('location')
+          .onSnapshot((loc) => {
+            privateLocation = loc.exists ? loc.data() : null;
+            emit();
+          }, () => {
+            privateLocation = null;
+            emit();
+          });
+      };
       const unsub = db.collection('rentals').doc(rentalId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
+            publicData = doc.data();
+            emit();
           }
         }, (error) => {
           console.error("Rental details listener error:", error);
         });
-      return unsub;
+      const unsubAuth = firebase.auth().onAuthStateChanged(bindLocation);
+      return () => {
+        unsub();
+        unsubAuth();
+        if (unsubLoc) unsubLoc();
+      };
     };
 
     window.listenToRenterRequests = function (renteeId, callback) {
@@ -2337,7 +2425,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify(list));
+          emitListingDocs(db, 'properties', list, function (merged) {
+            callback(JSON.stringify(merged));
+          });
         }, (error) => {
           console.error("Properties list listener error:", error);
         });
@@ -2347,15 +2437,48 @@
     window.listenToPropertyDetails = function (propertyId, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
+      let publicData = null;
+      let privateLocation = null;
+      let unsubLoc = null;
+      const emit = () => {
+        if (!publicData) return;
+        const merged = privateLocation ? Object.assign({}, publicData, privateLocation) : publicData;
+        callback(JSON.stringify(Object.assign({}, merged, { id: propertyId })));
+      };
+      const bindLocation = (user) => {
+        if (unsubLoc) {
+          unsubLoc();
+          unsubLoc = null;
+        }
+        privateLocation = null;
+        if (!user) {
+          emit();
+          return;
+        }
+        unsubLoc = db.collection('properties').doc(propertyId).collection('private').doc('location')
+          .onSnapshot((loc) => {
+            privateLocation = loc.exists ? loc.data() : null;
+            emit();
+          }, () => {
+            privateLocation = null;
+            emit();
+          });
+      };
       const unsub = db.collection('properties').doc(propertyId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
+            publicData = doc.data();
+            emit();
           }
         }, (error) => {
           console.error("Property details listener error:", error);
         });
-      return unsub;
+      const unsubAuth = firebase.auth().onAuthStateChanged(bindLocation);
+      return () => {
+        unsub();
+        unsubAuth();
+        if (unsubLoc) unsubLoc();
+      };
     };
 
     window.listenToPropertyRenterRequests = function (renteeId, callback) {

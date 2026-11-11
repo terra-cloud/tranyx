@@ -10,6 +10,7 @@ import '../../components/ui_helpers.dart';
 import '../../components/search_and_breakdown_rules.dart';
 import '../../state/app_state.dart';
 import '../utils/geo_helper.dart';
+import '../utils/listing_privacy.dart';
 import 'package:shared/shared.dart';
 
 class JobsViewComponent extends StatelessComponent {
@@ -1803,15 +1804,16 @@ class _JobDetails extends StatelessComponent {
       Builder(
         builder: (context) {
           final j = s.selectedJobData;
+          final signedIn = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
           final isRemote = (j?['locationType'] as String?)?.toLowerCase() == 'remote';
           String? distance;
           final jobLat = (j?['latitude'] as num?)?.toDouble() ?? (j?['pickupLat'] as num?)?.toDouble();
           final jobLng = (j?['longitude'] as num?)?.toDouble() ?? (j?['pickupLng'] as num?)?.toDouble();
-          if (!isRemote && jobLat != null && jobLng != null) {
+          if (signedIn && !isRemote && jobLat != null && jobLng != null) {
             final dist = calculateDistance(s.userLatitude, s.userLongitude, jobLat, jobLng);
             distance = dist < 1.0 ? '${(dist * 1000).round()} m' : '${dist.toStringAsFixed(1)} km';
           }
-          final addr = (j?['address'] as String?) ?? '';
+          final addr = j == null ? '' : listingAddressForViewer(j, signedIn: signedIn);
           final rows = <List<String>>[
             if (distance != null) ['Distance', distance],
             if (addr.isNotEmpty) ['Location', addr] else if (isRemote) ['Location', 'Remote'],
@@ -1836,12 +1838,15 @@ class _JobDetails extends StatelessComponent {
             s.selectedJobData?['description'] as String? ?? 'No description provided.',
           ),
         ]),
-        if ((s.selectedJobData?['address'] as String?)?.isNotEmpty ?? false) ...[
+        if ((s.selectedJobData?['address'] as String?)?.isNotEmpty == true ||
+            (s.selectedJobData?['addressPublic'] as String?)?.isNotEmpty == true ||
+            (s.selectedJobData?['pickupAddress'] as String?)?.isNotEmpty == true) ...[
           div(classes: 'mt-3 flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
             lIcon('map-pin', cls: 'w-4 h-4 flex-shrink-0 mt-0.5 text-indigo-400'),
             div([
-              Component.text(s.selectedJobData!['address'] as String),
-              if ((s.selectedJobData?['landmark'] as String?)?.isNotEmpty ?? false)
+              Component.text(listingAddressForViewer(s.selectedJobData!, signedIn: viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid))),
+              if (viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid) &&
+                  ((s.selectedJobData?['landmark'] as String?)?.isNotEmpty ?? false))
                 Component.text(' — ${s.selectedJobData!['landmark']}'),
             ]),
           ]),

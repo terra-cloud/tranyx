@@ -7,6 +7,7 @@ import '../services/web_interop.dart';
 import '../services/firebase_service.dart';
 import '../client/tranyx_app.dart';
 import '../client/utils/geo_helper.dart';
+import '../client/utils/listing_privacy.dart';
 
 // Sub-status labels and progression
 const _kSubStatuses = [
@@ -225,7 +226,7 @@ class _NavigationMapState extends State<NavigationMapComponent> {
             'nyxianRemainingDuration': ?remainingDuration,
             'lastTelemetry': data,
           };
-          await FirestoreService(token).setDocument('jobs/$documentId', updatePayload);
+          await FirestoreService(token).setDocument('jobs/$documentId/private/location', updatePayload);
         } catch (_) {}
       },
     );
@@ -344,6 +345,11 @@ class _NavigationMapState extends State<NavigationMapComponent> {
   Component build(BuildContext context) {
     if (!_isEligibleToDisplay()) {
       return div([]);
+    }
+    if (!listingMapAllowed(signedIn: viewerIsSignedIn(component.state.userProfile?.uid ?? SessionStorage.uid))) {
+      return div(classes: 'rounded-2xl border border-zinc-700 px-4 py-3 text-sm text-zinc-400', [
+        Component.text(kPublicAddressMask),
+      ]);
     }
 
     final s = component.state;

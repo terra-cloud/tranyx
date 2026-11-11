@@ -5,9 +5,10 @@
     // Properties Collection (Anti-Exploitation: Host CANNOT alter pricing/rules once booked)
     match /properties/{propertyId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Property Owner): Can update property details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -24,7 +25,7 @@
             'securityDepositAmount', 'advanceAmount', 'depositType',
             'depositValue', 'securityDepositPolicy',
             // Location & specs
-            'address', 'location', 'landmark', 'lat', 'lng', 'latitude', 'longitude',
+            'addressPublic',
             'bedrooms', 'bathrooms', 'maxGuests', 'sqft', 'furnishing',
             'amenities', 'houseRules',
             // Photos & legal terms
@@ -86,7 +87,15 @@
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' &&
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
