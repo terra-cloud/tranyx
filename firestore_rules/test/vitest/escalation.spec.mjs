@@ -29,7 +29,7 @@ describe('ESC: fresh signup self-granted role flags', () => {
   for (const flag of ['isAdmin', 'isStaff', 'isP2pAgent']) {
     describe(`with users/attacker.${flag}=true and NO custom claim`, () => {
       const prep = async () => { await victimSeed(); await seed({ 'users/attacker': userProfile('attacker', { [flag]: true }) }); };
-      knownHole(`KNOWN-HOLE ESC-02-${flag} [CRITICAL] cannot edit another user's tyxBalance (02_admin_helpers.rules:37-46 isUserAdminInDoc / compiled:88-97,138)`, async () => {
+      it(`ESC-02-${flag} [CRITICAL] (fixed: staff balance writes are callable-only) cannot edit another user's tyxBalance (02_admin_helpers.rules:37-46 isUserAdminInDoc / compiled:88-97,138)`, async () => {
         await prep();
         await assertFails(updateDoc(doc(user('attacker'), 'users/victim'), { tyxBalance: 0 }));
       });
@@ -66,7 +66,7 @@ describe('ESC: unverified @tranyx.com email', () => {
     await victimSeed();
     await assertFails(getDoc(doc(unverified(), 'system_config/treasury')));
   });
-  knownHole('KNOWN-HOLE ESC-10 [CRITICAL] unverified @tranyx.com gains no staff access after self-writing p2p_agents/{uid} (isP2pAgentInDoc: 02_...:50-52 / compiled:101-103)', async () => {
+  it('ESC-10 [CRITICAL] (fixed: staff balance writes are callable-only) unverified @tranyx.com gains no staff access after self-writing p2p_agents/{uid} (isP2pAgentInDoc: 02_...:50-52 / compiled:101-103)', async () => {
     await victimSeed();
     await seed({ 'p2p_agents/impostor': { uid: 'impostor', role: 'agent', isActive: true } }); // state ESC-08 lets them create
     await assertFails(updateDoc(doc(unverified(), 'users/victim'), { tyxBalance: 999999 }));
@@ -90,13 +90,15 @@ describe('ESC: only the admin custom claim grants admin', () => {
     await victimSeed();
     await assertFails(updateDoc(doc(user('emp', { email: 'emp@tranyx.com', email_verified: true }), 'users/victim'), { tyxBalance: 0 }));
   });
-  knownHole('KNOWN-HOLE ESC-14 [HIGH] token.role:"support" claim without admin==true cannot edit balances (02_...:21-26 / compiled:71-76)', async () => {
+  it('ESC-14 [HIGH] (fixed: staff balance writes are callable-only) token.role:"support" claim without admin==true cannot edit balances (02_...:21-26 / compiled:71-76)', async () => {
     await victimSeed();
     await assertFails(updateDoc(doc(user('sup', { role: 'support' }), 'users/victim'), { tyxBalance: 0 }));
   });
-  it('ESC-15 [MUST-ALLOW] request.auth.token.admin==true can edit balance and approve withdrawal', async () => {
+  it('ESC-15 [MUST-ALLOW] request.auth.token.admin==true can approve withdrawal; a balance edit now goes through staffOps only', async () => {
     await victimSeed();
-    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/victim'), { tyxBalance: 50 }));
+    await assertFails(updateDoc(doc(adminClaim(), 'users/victim'), { tyxBalance: 50 }));
+    await assertFails(updateDoc(doc(adminClaim(), 'users/victim'), { reservedBalance: 50 }));
+    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/victim'), { banned: true }));
     await assertSucceeds(updateDoc(doc(adminClaim(), 'withdrawal_requests/wr1'), { status: 'APPROVED' }));
   });
 });

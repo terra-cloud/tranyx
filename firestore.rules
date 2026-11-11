@@ -4,7 +4,6 @@
 // To make changes, edit files in "firestore_rules/" and compile via:
 //   dart run tool/build_rules.dart
 // ============================================================================
-
 // >>> SOURCE: firestore_rules/00_header.rules
 // ============================================================================
 // TRANYX CLOUD FIRESTORE SECURITY RULES (MODULAR SOURCE)
@@ -96,6 +95,18 @@ service cloud.firestore {
     // Helper to check if the user is an admin, staff member, or registered P2P agent
     function isAdminOrStaff() {
       return isAdminTokenOrEmail() || (isAuthenticated() && (isUserAdminInDoc() || isP2pAgentInDoc()));
+    }
+
+    // Server-issued admin custom claim only. role=agent/staff, a users-doc flag, or an active
+    // p2p_agents doc must not grant or edit privilege / paid-entitlement fields.
+    function isClaimAdmin() {
+      return isAuthenticated() && request.auth.token != null && (
+        ('admin' in request.auth.token && request.auth.token.admin == true) ||
+        ('superadmin' in request.auth.token && request.auth.token.superadmin == true) ||
+        ('role' in request.auth.token && request.auth.token.role in [
+          'admin', 'super_admin', 'superadmin', 'ADMIN', 'SUPER_ADMIN', 'SUPERADMIN'
+        ])
+      );
     }
 
 // >>> SOURCE: firestore_rules/10_workspace_users_wallets.rules
@@ -250,7 +261,20 @@ service cloud.firestore {
             'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
             'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
           ])) ||
-        isAdminOrStaff()
+        // Claim-admins may bootstrap a profile (including role flags) but never mint a balance.
+        // Every other staff/agent path may create a zero-balance profile only with no privilege or paid-entitlement fields.
+        (isClaimAdmin() &&
+          request.resource.data.get('tyxBalance', 0) == 0 && request.resource.data.get('reservedBalance', 0) == 0) ||
+        (isAdminOrStaff() &&
+          request.resource.data.get('tyxBalance', 0) == 0 && request.resource.data.get('reservedBalance', 0) == 0 &&
+          !request.resource.data.keys().hasAny(['role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent']) &&
+          request.resource.data.get('isPremium', false) == false &&
+          request.resource.data.get('premiumUntil', null) == null &&
+          request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          !request.resource.data.keys().hasAny([
+            'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
+            'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
+          ]))
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
@@ -264,8 +288,18 @@ service cloud.firestore {
           'tyxBalance', 'reservedBalance'
         ]) && ownerPremiumNotRaised())
         || 
-        // 2. Admin / Staff: Can update admin, moderation & verification fields
-        isAdminOrStaff()
+        // 2a. Admin custom claim: moderation, privilege, and entitlement fields. NOT the balance.
+        (isClaimAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tyxBalance', 'reservedBalance']))
+        ||
+        // 2b. Other staff / P2P agents: moderation only. Privilege flags and paid entitlement stay claim-admin
+        //     (or Admin SDK). Balances move only through the staffOps callable.
+        (isAdminOrStaff() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'tyxBalance', 'reservedBalance',
+          'role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent',
+          'isPremium', 'premiumUntil', 'accountType',
+          'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
+          'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
+        ]))
         ||
         // 3. Owner's pending subscription request bookkeeping (grants nothing; staff approve it)
         (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -312,8 +346,28 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow write: if (isOwner(walletId) || isAdminOrStaff()) &&
-        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0));
+      // Paid entitlement on the wallet doc is claim-admin / Admin SDK only. Agents and owners cannot grant it
+      // on create or update; agents cannot delete another user's wallet to recreate it privileged.
+      allow create: if (isOwner(walletId) || isAdminOrStaff()) &&
+        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0)) &&
+        (
+          isClaimAdmin() ||
+          (
+            request.resource.data.get('isPremium', false) == false &&
+            request.resource.data.get('premiumUntil', null) == null &&
+            request.resource.data.get('accountType', '') != 'hybrid' &&
+            !request.resource.data.keys().hasAny(['role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'])
+          )
+        );
+      allow update: if (isOwner(walletId) || isAdminOrStaff()) &&
+        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0)) &&
+        (
+          isClaimAdmin() ||
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'isPremium', 'premiumUntil', 'accountType', 'role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'
+          ])
+        );
+      allow delete: if isOwner(walletId) || isClaimAdmin();
 
       match /transactions/{txId} {
         allow read, write: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
@@ -1376,6 +1430,12 @@ service cloud.firestore {
 
     // settings/platform_fees: the fee rates the web/mobile apps read before showing a gig/booking total.
     // Everything else under settings stays closed. Writes are admin/staff only (the server reads it with the Admin SDK).
+    // Audit trail of staffOps: Admin SDK writes only. Read is an admin custom claim, not an agent or a users-doc flag.
+    match /staff_audit_log/{opId} {
+      allow read: if isClaimAdmin();
+      allow write: if false;
+    }
+
     match /settings/{docId} {
       allow read: if isAuthenticated() && docId == 'platform_fees';
       allow write: if isAdminOrStaff();

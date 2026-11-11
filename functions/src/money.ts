@@ -76,8 +76,20 @@ export async function readOp(tx: Transaction, db: Firestore, uid: string, key: s
   return s.exists ? ((s.get('result') as Record<string, unknown>) ?? { ok: true }) : null;
 }
 
-export function writeOp(tx: Transaction, db: Firestore, uid: string, key: string, action: string, result: Record<string, unknown>, now: number) {
-  tx.create(opRef(db, uid, key), { uid, action, result, createdAt: now });
+/** Full idempotency record. Staff ops bind a replay to actor + action + target; a mismatch must not return `result`. */
+export async function readOpMeta(tx: Transaction, db: Firestore, uid: string, key: string): Promise<{ uid: string; action: string; target: string; result: Record<string, unknown> } | null> {
+  const s = await tx.get(opRef(db, uid, key));
+  if (!s.exists) return null;
+  return {
+    uid: typeof s.get('uid') === 'string' ? s.get('uid') : '',
+    action: typeof s.get('action') === 'string' ? s.get('action') : '',
+    target: typeof s.get('target') === 'string' ? s.get('target') : '',
+    result: (s.get('result') as Record<string, unknown>) ?? { ok: true },
+  };
+}
+
+export function writeOp(tx: Transaction, db: Firestore, uid: string, key: string, action: string, result: Record<string, unknown>, now: number, target = '') {
+  tx.create(opRef(db, uid, key), { uid, action, result, createdAt: now, ...(target ? { target } : {}) });
 }
 
 // ── wallet accumulator ─────────────────────────────────────────────────────────────────────────

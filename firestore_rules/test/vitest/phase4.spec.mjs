@@ -64,8 +64,8 @@ describe('P4 no client path can move a balance for these flows', () => {
     await seedAll();
     await assertSucceeds(updateDoc(doc(user('renter'), 'users/renter'), { headline: 'Hi' }));
   });
-  it('[MUST-ALLOW] staff (admin claim) can still adjust balances for support and arbitration', async () => {
+  it('staff (admin claim) can no longer adjust balances from a client: arbitration / support go through the staffOps callable', async () => {
     await seedAll();
-    await assertSucceeds(updateDoc(doc(adminClaim(), 'users/renter'), { tyxBalance: 123 }));
+    await assertFails(updateDoc(doc(adminClaim(), 'users/renter'), { tyxBalance: 123 }));
   });
 });
