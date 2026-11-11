@@ -53,6 +53,14 @@ class FirebaseConfig {
   }
 }
 
+/// Public reCAPTCHA Enterprise site key for the tranyx-app web app (Fraud Defense).
+/// Dev and UAT have no registered key, so those builds send no App Check token.
+const String kProdRecaptchaEnterpriseSiteKey = '6LcSphouAAAAAHFEBkUyC0F8wK01xo3FGyrVCjtM';
+
+const String _appCheckSiteKey = String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod'
+    ? kProdRecaptchaEnterpriseSiteKey
+    : '';
+
 /// Reads dart-define ENV (dev | uat | prod) and returns the matching Firebase config.
 /// Default: dev
 FirebaseConfig _getEnvironmentConfig() {
@@ -902,7 +910,7 @@ class FirestoreService {
           'projectId': currentFirebaseConfig.projectId,
           'appId': currentFirebaseConfig.appId,
         },
-        const String.fromEnvironment('APPCHECK_SITE_KEY'),
+        _appCheckSiteKey,
       );
       return _client
           .post(
@@ -6117,7 +6125,7 @@ class FirestoreService {
           'projectId': currentFirebaseConfig.projectId,
           'appId': currentFirebaseConfig.appId,
         },
-        const String.fromEnvironment('APPCHECK_SITE_KEY'),
+        _appCheckSiteKey,
       );
       return _client
           .post(
