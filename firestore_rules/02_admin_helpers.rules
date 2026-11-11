@@ -59,3 +59,17 @@
       );
     }
 
+    // Custom-claim staff/agent/admin. A users doc or an active p2p_agents doc is not this.
+    function isClaimStaff() {
+      return isAdminTokenOrEmail();
+    }
+
+    // Claim-admin metadata touch only. Amount, status, and party fields stay on the money callables.
+    function clientEscrowUpdateOk() {
+      return isClaimAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'amount', 'status', 'employerFees', 'totalEscrowed', 'refundAmount', 'price', 'payout',
+        'releasedAmount', 'releasedTo', 'refundedTo', 'employerId', 'creatorId', 'workerId',
+        'nyxianId', 'hostId', 'renteeId', 'renterId', 'totalPaid', 'holdbackAmount'
+      ]);
+    }
+

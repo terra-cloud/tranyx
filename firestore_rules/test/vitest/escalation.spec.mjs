@@ -33,15 +33,15 @@ describe('ESC: fresh signup self-granted role flags', () => {
         await prep();
         await assertFails(updateDoc(doc(user('attacker'), 'users/victim'), { tyxBalance: 0 }));
       });
-      knownHole(`KNOWN-HOLE ESC-03-${flag} [CRITICAL] cannot approve another user's withdrawal (compiled:247 via isAdminOrStaff)`, async () => {
+      it(`ESC-03-${flag} [CRITICAL] doc-flag staff cannot approve another user's withdrawal`, async () => {
         await prep();
         await assertFails(updateDoc(doc(user('attacker'), 'withdrawal_requests/wr1'), { status: 'APPROVED', approvedBy: 'attacker' }));
       });
-      knownHole(`KNOWN-HOLE ESC-04-${flag} [CRITICAL] cannot write p2p_agents for another uid (60_admin_portal_operations.rules:8 / compiled:919)`, async () => {
+      it(`ESC-04-${flag} [CRITICAL] doc-flag staff cannot write p2p_agents for another uid`, async () => {
         await prep();
         await assertFails(setDoc(doc(user('attacker'), 'p2p_agents/victim'), { uid: 'victim', role: 'agent', isActive: true }));
       });
-      knownHole(`KNOWN-HOLE ESC-05-${flag} [CRITICAL] cannot read system_config/treasury (compiled:986)`, async () => {
+      it(`ESC-05-${flag} [CRITICAL] doc-flag staff cannot read system_config/treasury`, async () => {
         await prep();
         await assertFails(getDoc(doc(user('attacker'), 'system_config/treasury')));
       });
@@ -99,7 +99,7 @@ describe('ESC: only the admin custom claim grants admin', () => {
     await assertFails(updateDoc(doc(adminClaim(), 'users/victim'), { tyxBalance: 50 }));
     await assertFails(updateDoc(doc(adminClaim(), 'users/victim'), { reservedBalance: 50 }));
     await assertSucceeds(updateDoc(doc(adminClaim(), 'users/victim'), { banned: true }));
-    await assertSucceeds(updateDoc(doc(adminClaim(), 'withdrawal_requests/wr1'), { status: 'APPROVED' }));
+    await assertFails(updateDoc(doc(adminClaim(), 'withdrawal_requests/wr1'), { status: 'APPROVED' }));
   });
 });
 

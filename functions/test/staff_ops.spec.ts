@@ -269,3 +269,62 @@ describe('idempotency is bound to actor, action and target', () => {
     expect((await db.collection('staff_audit_log').get()).size).toBe(1);
   });
 });
+
+describe('web staff money contracts', () => {
+  const dep = (over: Record<string, unknown> = {}) => ({ userId: 'user1', uid: 'user1', userName: 'U', amount: 250, referenceNumber: 'pv-1', paymentMethod: 'GCash', status: 'PENDING_VERIFICATION', ...over });
+
+  it('approveDeposit accepts PENDING_VERIFICATION and credits the doc amount once', async () => {
+    await db.doc('deposit_requests/dv').set(dep());
+    const r = await op(agent, { action: 'approveDeposit', depositId: 'dv', amount: 1 });
+    expect(r.credited).toBe(250);
+    expect(await bal('user1')).toBe(350);
+    expect((await op(agent, { action: 'approveDeposit', depositId: 'dv' })).alreadyDone).toBe(true);
+    expect(await bal('user1')).toBe(350);
+  });
+
+  it('adminCancelJob refunds the held escrow amount only, not employer fees, and not twice', async () => {
+    await db.doc('jobs/j9').set({ creatorId: 'emp', acceptedApplicantId: 'wrk', status: 'In Progress', title: 'Fix sink' });
+    await db.doc('escrow/j9').set({ status: 'held', amount: 800, employerFees: 80, employerId: 'emp' });
+    const reason = 'Worker never showed up after hire';
+    expect((await err(op(admin, { action: 'adminCancelJob', jobId: 'j9', reason: 'too short' })))?.code).toBe('invalid-argument');
+    expect(await bal('emp')).toBe(0);
+    expect((await db.collection('staff_audit_log').get()).size).toBe(0);
+    const r = await op(admin, { action: 'adminCancelJob', jobId: 'j9', reason });
+    expect(r.refunded).toBe(800);
+    expect(await bal('emp')).toBe(800);
+    expect((await db.doc('jobs/j9').get()).get('status')).toBe('ADMIN_CANCELLED');
+    expect((await db.doc('escrow/j9').get()).data()).toMatchObject({ status: 'refunded', refundAmount: 800 });
+    expect((await db.doc('transactions/refund_job_j9').get()).get('amount')).toBe(800);
+    const again = await op(admin, { action: 'adminCancelJob', jobId: 'j9', reason });
+    expect(again.alreadyDone).toBe(true);
+    expect(await bal('emp')).toBe(800);
+    expect((await err(op(agent, { action: 'adminCancelJob', jobId: 'j9', reason })))?.code).toBe('permission-denied');
+  });
+
+  it('the employer cannot admin-cancel their own gig, and a party cannot arbitrate their own dispute', async () => {
+    await db.doc('users/adm').set({ tyxBalance: 10, name: 'adm' });
+    await db.doc('jobs/jself').set({ creatorId: 'adm', status: 'In Progress', title: 'Mine' });
+    await db.doc('escrow/jself').set({ status: 'held', amount: 100, employerFees: 20, employerId: 'adm' });
+    const selfCancel = await err(op(admin, { action: 'adminCancelJob', jobId: 'jself', reason: 'This is my own gig and must not refund me' }));
+    expect(selfCancel?.details?.code).toBe('SELF_ACTION');
+    expect(await bal('adm')).toBe(10);
+    expect((await db.doc('jobs/jself').get()).get('status')).toBe('In Progress');
+    await db.doc('jobs/j1').set({ creatorId: 'emp', acceptedApplicantId: 'wrk', status: 'Disputed' });
+    await db.doc('escrow/j1').set({ status: 'held', amount: 1000, employerId: 'emp' });
+    await db.doc('disputes/xself').set({ jobId: 'j1', status: 'OPEN', employerId: 'adm', escrowAmount: 1 });
+    const party = as('emp', { admin: true });
+    const selfDispute = await err(op(party, { action: 'resolveDispute', disputeId: 'xself', resolutionType: 'REFUND_EMPLOYER', notes: 'Employer is also the admin' }));
+    expect(selfDispute?.details?.code).toBe('SELF_ACTION');
+    expect(await bal('emp')).toBe(0);
+    expect((await db.doc('disputes/xself').get()).get('status')).toBe('OPEN');
+    expect((await db.collection('staff_audit_log').get()).size).toBe(0);
+  });
+
+  it('an unfunded gig can still be admin-cancelled without a balance write', async () => {
+    await db.doc('jobs/j0').set({ creatorId: 'emp', status: 'Open', title: 'No funds' });
+    const r = await op(admin, { action: 'adminCancelJob', jobId: 'j0', reason: 'Posted in error before anyone was hired' });
+    expect(r.refunded).toBe(0);
+    expect(await bal('emp')).toBe(0);
+    expect((await db.doc('jobs/j0').get()).get('status')).toBe('ADMIN_CANCELLED');
+  });
+});
