@@ -33,6 +33,8 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
   final TextEditingController _newQuestionController = TextEditingController();
   final TextEditingController _replyController = TextEditingController();
   bool _isLoading = false;
+  // Server-issued completion codes by job id (never read from the job doc).
+  final Map<String, String> _completionCodes = {};
   bool _isUploadingReceipt = false;
   String? _uploadedReceiptUrl;
 
@@ -2058,7 +2060,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
             isDarkMode,
           );
         } else {
-          if (job.completionCode != null && job.completionCode!.isNotEmpty) {
+          if (_completionCodes[job.id] != null) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2082,10 +2084,10 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      MockQrCode(data: job.completionCode!),
+                      MockQrCode(data: _completionCodes[job.id]!),
                       const SizedBox(height: 16),
                       Text(
-                        job.completionCode!,
+                        _completionCodes[job.id]!,
                         style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
@@ -2114,18 +2116,12 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                 : () async {
                     setState(() => _isLoading = true);
                     try {
-                      final code =
-                          (100000 +
-                                  (DateTime.now().millisecondsSinceEpoch %
-                                      900000))
-                              .toString();
-                      await ref
+                      final code = await ref
                           .read(jobRepositoryProvider)
-                          .updateJobStatus(
-                            job.id,
-                            'done',
-                            additionalFields: {'completionCode': code},
-                          );
+                          .generateCompletionCode(job.id);
+                      if (mounted) {
+                        setState(() => _completionCodes[job.id] = code);
+                      }
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -2501,7 +2497,7 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
           isDarkMode,
         );
       } else if (status == 'arrived_dropoff') {
-        if (job.completionCode != null && job.completionCode!.isNotEmpty) {
+        if (_completionCodes[job.id] != null) {
           return Column(
             children: [
               Container(
@@ -2524,10 +2520,10 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    MockQrCode(data: job.completionCode!),
+                    MockQrCode(data: _completionCodes[job.id]!),
                     const SizedBox(height: 16),
                     Text(
-                      job.completionCode!,
+                      _completionCodes[job.id]!,
                       style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
@@ -2558,18 +2554,12 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                   : () async {
                       setState(() => _isLoading = true);
                       try {
-                        final code =
-                            (100000 +
-                                    (DateTime.now().millisecondsSinceEpoch %
-                                        900000))
-                                .toString();
-                        await ref
-                            .read(jobRepositoryProvider)
-                            .updateJobStatus(
-                              job.id,
-                              'arrived_dropoff',
-                              additionalFields: {'completionCode': code},
-                            );
+                        final repo = ref.read(jobRepositoryProvider);
+                        final code = await repo.generateCompletionCode(job.id);
+                        await repo.updateJobStatus(job.id, 'arrived_dropoff');
+                        if (mounted) {
+                          setState(() => _completionCodes[job.id] = code);
+                        }
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(

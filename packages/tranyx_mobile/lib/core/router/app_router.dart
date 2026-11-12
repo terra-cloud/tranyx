@@ -8,9 +8,8 @@ import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/features/jobs/models/job.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
+import 'package:tranyx_mobile/core/services/onchain_credit.dart';
 import 'package:tranyx_mobile/features/transit/providers/transit_repository.dart';
-import 'package:tranyx_mobile/core/providers/theme_provider.dart';
-import 'package:tranyx_mobile/core/theme/app_colors.dart';
 
 // Provides the GoRouter instance
 final routerProvider = Provider<GoRouter>((ref) {
@@ -180,357 +179,77 @@ final routerProvider = Provider<GoRouter>((ref) {
               return;
             }
 
-            final isDarkMode = ref.read(themeModeProvider);
-
-            bool isSwitching = false;
             if (user != null) {
-              final currentProfile = ref.read(userProfileProvider).value;
-              if (currentProfile?.walletPublicKey != null &&
-                  currentProfile!.walletPublicKey!.isNotEmpty &&
-                  currentProfile.walletPublicKey != userSolanaPublicKey) {
-                isSwitching = true;
-                await ref.read(authControllerProvider).signOut();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Wallet switched. Changing profile...'),
-                      backgroundColor: Colors.amber,
-                    ),
-                  );
-                }
-              } else {
-                try {
-                  // ── 1:1 guard: check if this wallet is already owned by another user ──
-                  final existingDoc = await ref
-                      .read(firestoreProvider)
-                      .collection('walletLinks')
-                      .doc(userSolanaPublicKey)
-                      .get();
-
-                  if (existingDoc.exists) {
-                    final existingUid = existingDoc.data()?['uid'] as String?;
-                    if (existingUid != null && existingUid != user.uid) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'This wallet is already linked to another account. Each wallet can only be connected to one account.',
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                      return;
-                    }
-                  }
-
-                  await ref
-                      .read(firestoreProvider)
-                      .collection('users')
-                      .doc(user.uid)
-                      .update({
-                        'walletPublicKey': userSolanaPublicKey,
-                        'connectedWalletType': walletType,
-                      });
-                  ref.invalidate(userProfileProvider);
-
-                  // Write link to walletLinks collection as well (for cross-platform login support)
-                  final password = await SecureStorageHelper.getPassword();
-                  final obfuscatedPassword = password != null
-                      ? SecureStorageHelper.obfuscate(password)
-                      : null;
-
-                  final providers = user.providerData.map((p) => p.providerId).toList();
-                  final provider = providers.contains('google.com') ? 'google.com' : 'password';
-
-                  final linkData = <String, dynamic>{
-                    'uid': user.uid,
-                    'email': user.email,
-                    'provider': provider,
-                    'linkedAt': DateTime.now().millisecondsSinceEpoch,
-                  };
-                  if (obfuscatedPassword != null) {
-                    linkData['password'] = obfuscatedPassword;
-                  }
-
-                  await ref
-                      .read(firestoreProvider)
-                      .collection('walletLinks')
-                      .doc(userSolanaPublicKey)
-                      .set(linkData);
-
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Wallet Connected: $userSolanaPublicKey'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to update wallet address: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              }
-            }
-            
-            if (user == null || isSwitching) {
-              // Sign in with Solana Wallet
               try {
-                final walletLinkDoc = await ref
+                // ── 1:1 guard: check if this wallet is already owned by another user ──
+                final existingDoc = await ref
                     .read(firestoreProvider)
                     .collection('walletLinks')
                     .doc(userSolanaPublicKey)
                     .get();
-                if (!walletLinkDoc.exists) {
-                  ref.read(pendingWalletPublicKeyProvider.notifier).state =
-                      userSolanaPublicKey;
-                  ref.read(authViewProvider.notifier).state = 'register-path';
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Wallet connected! Please register or sign in to link your account.',
+
+                if (existingDoc.exists) {
+                  final existingUid = existingDoc.data()?['uid'] as String?;
+                  if (existingUid != null && existingUid != user.uid) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+                          ),
+                          backgroundColor: Colors.red,
                         ),
-                        backgroundColor: Colors.indigo,
-                      ),
-                    );
+                      );
+                    }
+                    return;
                   }
-                  return;
                 }
 
-                final linkData = walletLinkDoc.data();
-                var email = linkData?['email'] as String?;
-                final uid = linkData?['uid'] as String?;
-                final obfuscatedPassword = linkData?['password'] as String?;
+                // One-wallet-one-account index and profile key in one batch, so a rejected link never
+                // leaves walletPublicKey set without its walletLinks doc. uid + linkedAt only: never
+                // credentials (KAN-124).
+                final firestore = ref.read(firestoreProvider);
+                await (firestore.batch()
+                      ..set(firestore.collection('walletLinks').doc(userSolanaPublicKey),
+                          {'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch})
+                      ..update(firestore.collection('users').doc(user.uid), {
+                        'walletPublicKey': userSolanaPublicKey,
+                        'connectedWalletType': walletType,
+                      }))
+                    .commit();
+                ref.invalidate(userProfileProvider);
 
-                if ((email == null || email.isEmpty) && uid != null) {
-                  final userDoc = await ref
-                      .read(firestoreProvider)
-                      .collection('users')
-                      .doc(uid)
-                      .get();
-                  email = userDoc.data()?['email'] as String?;
-                }
-
-                if (email == null || email.isEmpty) {
-                  throw 'No email associated with this wallet link.';
-                }
-
-                if (obfuscatedPassword != null &&
-                    obfuscatedPassword.isNotEmpty) {
-                  final password = SecureStorageHelper.deobfuscate(
-                    obfuscatedPassword,
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Wallet Connected: $userSolanaPublicKey'),
+                      backgroundColor: Colors.green,
+                    ),
                   );
-                  await ref
-                      .read(firebaseAuthProvider)
-                      .signInWithEmailAndPassword(
-                        email: email,
-                        password: password,
-                      );
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Logged in successfully via Solana wallet!',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } else {
-                  final provider = linkData?['provider'] as String?;
-
-                  if (provider == 'google.com') {
-                    // Google Sign-In Required
-                    if (context.mounted) {
-                      final proceed = await showDialog<bool>(
-                        context: context,
-                        barrierDismissible: false,
-                        builder: (ctx) {
-                          return AlertDialog(
-                            backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
-                            title: Text(
-                              'Google Sign-In Required',
-                              style: TextStyle(
-                                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-                              ),
-                            ),
-                            content: Text(
-                              'This wallet is linked to the Google account $email. Please sign in with Google to authorize this device.',
-                              style: TextStyle(
-                                color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(false),
-                                child: const Text('Cancel'),
-                              ),
-                              ElevatedButton(
-                                onPressed: () => Navigator.of(ctx).pop(true),
-                                child: const Text('Sign in with Google'),
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                      if (proceed == true) {
-                        await ref.read(authControllerProvider).signInWithGoogle();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Logged in successfully via Solana wallet!',
-                              ),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      }
-                    }
-                  } else if (provider == 'password') {
-                    // Prompt user to enter their password to link/authorize this device
-                    if (context.mounted) {
-                      final password = await _showPasswordPromptDialog(
-                        context,
-                        email,
-                        isDarkMode,
-                      );
-                      if (password != null && password.isNotEmpty) {
-                        await ref
-                            .read(firebaseAuthProvider)
-                            .signInWithEmailAndPassword(
-                              email: email,
-                              password: password,
-                            );
-
-                        // Save password locally and update Firestore walletLinks with obfuscated password
-                        await SecureStorageHelper.savePassword(password);
-                        await ref
-                            .read(firestoreProvider)
-                            .collection('walletLinks')
-                            .doc(userSolanaPublicKey)
-                            .update({
-                              'password': SecureStorageHelper.obfuscate(password),
-                            });
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Logged in successfully and authorized device!',
-                              ),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      }
-                    }
-                  } else {
-                    // Legacy case (provider is null) — show choice dialog
-                    if (context.mounted) {
-                      final choice = await showDialog<String>(
-                        context: context,
-                        barrierDismissible: false,
-                        builder: (ctx) {
-                          return AlertDialog(
-                            backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
-                            title: Text(
-                              'Authorize Device',
-                              style: TextStyle(
-                                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-                              ),
-                            ),
-                            content: Text(
-                              'This wallet is linked to the email $email. Please choose how you want to authorize this device.',
-                              style: TextStyle(
-                                color: isDarkMode ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop('cancel'),
-                                child: const Text('Cancel'),
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop('password'),
-                                child: const Text('Use Password'),
-                              ),
-                              ElevatedButton(
-                                onPressed: () => Navigator.of(ctx).pop('google'),
-                                child: const Text('Sign in with Google'),
-                              ),
-                            ],
-                          );
-                        },
-                      );
-
-                      if (choice == 'google') {
-                        await ref.read(authControllerProvider).signInWithGoogle();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Logged in successfully via Solana wallet!',
-                              ),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
-                      } else if (choice == 'password') {
-                        final password = await _showPasswordPromptDialog(
-                          context,
-                          email,
-                          isDarkMode,
-                        );
-                        if (password != null && password.isNotEmpty) {
-                          await ref
-                              .read(firebaseAuthProvider)
-                              .signInWithEmailAndPassword(
-                                email: email,
-                                password: password,
-                              );
-
-                          await SecureStorageHelper.savePassword(password);
-                          await ref
-                              .read(firestoreProvider)
-                              .collection('walletLinks')
-                              .doc(userSolanaPublicKey)
-                              .update({
-                                'password': SecureStorageHelper.obfuscate(password),
-                              });
-
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Logged in successfully and authorized device!',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
-                        }
-                      }
-                    }
-                  }
                 }
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Wallet Sign-In failed: $e'),
+                      content: Text('Failed to update wallet address: $e'),
                       backgroundColor: Colors.red,
                     ),
                   );
                 }
+              }
+            } else {
+              // Wallet sign-in was removed (KAN-124): it signed users in with credentials stored in
+              // walletLinks. Keep the key so it links after a normal email/Google sign-in.
+              ref.read(pendingWalletPublicKeyProvider.notifier).state = userSolanaPublicKey;
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Wallet sign-in is turned off. Sign in with email or Google and your wallet will be linked.',
+                    ),
+                    backgroundColor: Colors.indigo,
+                  ),
+                );
               }
             }
           });
@@ -698,23 +417,15 @@ final routerProvider = Provider<GoRouter>((ref) {
 
             try {
               // Confirm & Update balance in Firestore and record the deposit transaction
-              final repo = ref.read(transitRepositoryProvider);
-              final userProfile = await repo.getUser(user.uid);
-              if (userProfile != null) {
-                final newBalance = userProfile.tyxBalance + phpAmount;
-                await repo.updateTyxBalance(user.uid, newBalance);
-
-                final txId = 'deposit_sol_$signature';
-                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
-                  'uid': user.uid,
-                  'type': 'deposit',
-                  'amount': phpAmount,
-                  'title': 'Wallet Top-Up ($currency)',
-                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
-                  'method': 'Solana',
-                  'solanaTxSignature': signature,
-                  'createdAt': DateTime.now().millisecondsSinceEpoch,
-                });
+              {
+                // Credit once per signature: shared on-chain marker + deposit marker +
+                // balance increment in one Firestore transaction.
+                (await creditOnchainDeposit(
+                  firestore: ref.read(firestoreProvider),
+                  uid: user.uid,
+                  signature: signature,
+                  isUsdt: currency.toUpperCase() == 'USDT',
+                )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
                 ref.invalidate(userTransactionsProvider);
@@ -915,30 +626,13 @@ final routerProvider = Provider<GoRouter>((ref) {
               }
 
               try {
-                final now = DateTime.now();
-                final premiumUntil = subType == 'yearly'
-                    ? now.add(const Duration(days: 365))
-                    : now.add(const Duration(days: 30));
-
-                // Update premium status in user profile & set account type to hybrid
-                await ref.read(firestoreProvider).collection('users').doc(user.uid).update({
-                  'isPremium': true,
-                  'premiumUntil': premiumUntil.millisecondsSinceEpoch,
-                  'accountType': 'hybrid',
-                });
-
-                // Record subscription transaction
-                final txId = 'sub_sol_$signature';
-                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
-                  'uid': user.uid,
-                  'type': 'subscription',
-                  'amount': phpAmount,
-                  'title': 'Hybrid PRO Subscription (${subType == 'yearly' ? 'Yearly' : 'Monthly'})',
-                  'desc': 'Subscribed via Solana wallet (${cryptoAmount.toStringAsFixed(4)} SOL)',
-                  'method': 'Solana Wallet',
-                  'solanaTxSignature': signature,
-                  'createdAt': now.millisecondsSinceEpoch,
-                });
+                // Activate once per signature; expiry extends from max(now, premiumUntil).
+                (await activateSubscriptionOnce(
+                  firestore: ref.read(firestoreProvider),
+                  uid: user.uid,
+                  signature: signature,
+                  plan: subType == 'yearly' ? 'yearly' : 'monthly',
+                )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
                 ref.invalidate(userTransactionsProvider);
@@ -987,23 +681,15 @@ final routerProvider = Provider<GoRouter>((ref) {
 
             try {
               // Confirm & Update balance in Firestore and record the deposit transaction
-              final repo = ref.read(transitRepositoryProvider);
-              final userProfile = await repo.getUser(user.uid);
-              if (userProfile != null) {
-                final newBalance = userProfile.tyxBalance + phpAmount;
-                await repo.updateTyxBalance(user.uid, newBalance);
-
-                final txId = 'deposit_sol_$signature';
-                await ref.read(firestoreProvider).collection('transactions').doc(txId).set({
-                  'uid': user.uid,
-                  'type': 'deposit',
-                  'amount': phpAmount,
-                  'title': 'Wallet Top-Up ($currency)',
-                  'desc': 'Crypto deposit of ${cryptoAmount.toStringAsFixed(4)} $currency via Solana',
-                  'method': 'Solana',
-                  'solanaTxSignature': signature,
-                  'createdAt': DateTime.now().millisecondsSinceEpoch,
-                });
+              {
+                // Credit once per signature: shared on-chain marker + deposit marker +
+                // balance increment in one Firestore transaction.
+                (await creditOnchainDeposit(
+                  firestore: ref.read(firestoreProvider),
+                  uid: user.uid,
+                  signature: signature,
+                  isUsdt: currency.toUpperCase() == 'USDT',
+                )).throwIfHeldElsewhere(signature);
 
                 ref.invalidate(userProfileProvider);
                 ref.invalidate(userTransactionsProvider);
@@ -1036,129 +722,3 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-Future<String?> _showPasswordPromptDialog(
-  BuildContext context,
-  String email,
-  bool isDarkMode,
-) async {
-  final controller = TextEditingController();
-  bool obscureText = true;
-
-  return showDialog<String>(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          final textStyle = TextStyle(
-            color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-          );
-          return AlertDialog(
-            backgroundColor: isDarkMode ? AppColors.darkCard : Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(28),
-            ),
-            title: Text(
-              'Authorize Device',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? AppColors.darkText : AppColors.lightText,
-              ),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Please enter your password for $email to authorize wallet sign-in on this device.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDarkMode
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                TextField(
-                  controller: controller,
-                  obscureText: obscureText,
-                  style: textStyle,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    labelStyle: TextStyle(
-                      color: isDarkMode
-                          ? AppColors.darkTextMuted
-                          : AppColors.lightTextMuted,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(
-                        color: isDarkMode
-                            ? AppColors.darkBorder
-                            : AppColors.lightBorder,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(
-                        color: AppColors.indigo,
-                        width: 2,
-                      ),
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        obscureText ? Icons.visibility : Icons.visibility_off,
-                        color: isDarkMode
-                            ? AppColors.darkTextMuted
-                            : AppColors.lightTextMuted,
-                      ),
-                      onPressed: () =>
-                          setState(() => obscureText = !obscureText),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(null),
-                child: Text(
-                  'Cancel',
-                  style: TextStyle(
-                    color: isDarkMode
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.indigo,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                ),
-                onPressed: () {
-                  final pwd = controller.text.trim();
-                  if (pwd.isNotEmpty) {
-                    Navigator.of(context).pop(pwd);
-                  }
-                },
-                child: const Text(
-                  'Authorize',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          );
-        },
-      );
-    },
-  );
-}

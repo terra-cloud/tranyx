@@ -27,3 +27,25 @@
     function isActiveUser() {
       return isAuthenticated() && !isUserBlocked(request.auth.uid);
     }
+
+    // Exact listing address and coordinates. Guests may read the public listing, never these fields.
+    // The public document keeps addressPublic = "Brgy. *****, ****". The exact values live in
+    // {collection}/{id}/private/location, readable only by a signed-in user.
+    function hasExactListingLocation(data) {
+      return data.keys().hasAny([
+        'address', 'landmark', 'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+        'destinationAddress', 'destinationLat', 'destinationLng',
+        'latitude', 'longitude', 'lat', 'lng',
+        'nyxianLat', 'nyxianLng', 'currentLocationLat', 'currentLocationLng',
+        'trackingLat', 'trackingLng', 'routeHistory'
+      ]);
+    }
+    function listingUpdateTouchesExactLocation() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'address', 'landmark', 'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+        'destinationAddress', 'destinationLat', 'destinationLng',
+        'latitude', 'longitude', 'lat', 'lng',
+        'nyxianLat', 'nyxianLng', 'currentLocationLat', 'currentLocationLng',
+        'trackingLat', 'trackingLng'
+      ]);
+    }

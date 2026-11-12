@@ -9,7 +9,10 @@ import '../../services/web_interop.dart';
 
 class ChatWidget extends StatefulComponent {
   final TranyxAppState state;
-  const ChatWidget({required this.state});
+
+  /// W40: render inside the Messages split pane instead of as an overlay.
+  final bool embedded;
+  const ChatWidget({required this.state, this.embedded = false});
   @override
   State<ChatWidget> createState() => _ChatWidgetState();
 }
@@ -128,21 +131,11 @@ class _ChatWidgetState extends State<ChatWidget> {
     final inputBg = isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900';
     final headerBg = isDark ? 'bg-zinc-900/80' : 'bg-white/80';
 
-    return div(
-      classes:
-          'fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm',
-      events: {
-        'click': (e) {
-          final target = (e).target;
-          final self = e.currentTarget;
-          if (target == self) s.closeChat();
-        },
-      },
+    final cardComp = div(
+      classes: component.embedded
+          ? 'w-full h-[calc(100vh-200px)] min-h-[520px] flex flex-col rounded-2xl $bg border $border shadow-sm overflow-hidden'
+          : 'w-full sm:max-w-lg h-[92dvh] sm:h-[75vh] flex flex-col rounded-t-3xl sm:rounded-3xl $bg border $border shadow-2xl overflow-hidden animate-fade-up',
       [
-        div(
-          classes:
-              'w-full sm:max-w-lg h-[92dvh] sm:h-[75vh] flex flex-col rounded-t-3xl sm:rounded-3xl $bg border $border shadow-2xl overflow-hidden animate-fade-up',
-          [
             // ── Header ──────────────────────────────────────────────────
             div(
               classes: '$headerBg backdrop-blur-md border-b $border flex items-center gap-3 px-5 py-4 flex-shrink-0',
@@ -448,8 +441,18 @@ class _ChatWidgetState extends State<ChatWidget> {
                 ],
               ),
           ],
-        ),
-      ],
+    );
+    if (component.embedded) return cardComp;
+    return div(
+      classes: 'fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm',
+      events: {
+        'click': (e) {
+          final target = (e).target;
+          final self = e.currentTarget;
+          if (target == self) s.closeChat();
+        },
+      },
+      [cardComp],
     );
   }
 

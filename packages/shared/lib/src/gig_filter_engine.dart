@@ -197,8 +197,78 @@ class GigFilterEngine {
       return payout >= highPayingThreshold;
     }
 
+    // Remote-only chip (W20)
+    if (normalized == 'Remote Gigs' || normalized == 'Remote') {
+      return isGigRemote(gig);
+    }
+
+    // Named category / skill chips (Cleaning, Plumbing, …) and free-text group labels
+    final aliases = categoryFilterAliases(normalized);
+    if (aliases.isNotEmpty) {
+      final cat = (gig['category'] is String
+              ? gig['category'] as String
+              : (gig['category']?.toString() ?? ''))
+          .toLowerCase();
+      final catLabel = (gig['categoryLabel'] as String?)?.toLowerCase() ?? '';
+      final catGroup = (gig['categoryGroup'] as String?)?.toLowerCase() ?? '';
+      final catGroupLabel =
+          (gig['categoryGroupLabel'] as String?)?.toLowerCase() ?? '';
+      final desc = (gig['description'] as String?)?.toLowerCase() ?? '';
+      final title = (gig['title'] as String?)?.toLowerCase() ?? '';
+      final combined =
+          '$cat $catLabel $catGroup $catGroupLabel $title $desc';
+      return aliases.any(combined.contains);
+    }
+
     return true;
   }
+
+  /// Keyword aliases for browse chips / Top Services cards.
+  /// Used by web W10/W20/W05 and mobile so live filters stay consistent.
+  static List<String> categoryFilterAliases(String filter) {
+    switch (filter.trim().toLowerCase()) {
+      case 'cleaning':
+      case 'cleaning & organizing':
+        return const ['clean', 'organizing', 'organizer'];
+      case 'plumbing':
+        return const ['plumb'];
+      case 'electrical':
+        return const ['electric'];
+      case 'carpentry':
+        return const ['carpent', 'woodwork', 'cabinet'];
+      case 'laundry':
+        return const ['laundry', 'wash and fold', 'wash & fold'];
+      case 'delivery':
+      case 'delivery & errands':
+        return const ['deliver', 'errand', 'parcel', 'courier', 'runner'];
+      case 'home repair & maintenance':
+      case 'home repair':
+        return const ['repair', 'plumb', 'electric', 'carpent', 'paint', 'aircon'];
+      default:
+        final f = filter.trim().toLowerCase();
+        if (f.length >= 3 &&
+            f != 'all' &&
+            f != 'recommended' &&
+            f != 'high paying' &&
+            f != 'remote gigs' &&
+            f != 'remote') {
+          return [f];
+        }
+        return const [];
+    }
+  }
+
+  /// Canonical browse chips shown on W20 Jobs · Browse (and counted on W10).
+  static const List<String> browseCategoryChips = [
+    'All',
+    'Remote Gigs',
+    'Cleaning',
+    'Plumbing',
+    'Electrical',
+    'Carpentry',
+    'Laundry',
+    'Delivery',
+  ];
 
   /// Filters a list of raw gig maps against all active constraints and returns matching list
   static List<Map<String, dynamic>> filterGigList({
@@ -252,6 +322,10 @@ class GigFilterEngine {
       catText = 'Showing: Recommended Gigs';
     } else if (normalized == 'High Paying') {
       catText = 'Showing: High Paying Gigs (₱1,000+)';
+    } else if (normalized == 'Remote Gigs' || normalized == 'Remote') {
+      catText = 'Showing: Remote Gigs';
+    } else if (normalized.isNotEmpty && normalized != 'All') {
+      catText = 'Showing: $normalized';
     } else {
       catText = 'Showing: All Job Types';
     }

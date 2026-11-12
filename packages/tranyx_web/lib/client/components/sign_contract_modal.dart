@@ -194,11 +194,11 @@ class _SignContractModalState extends State<SignContractModalComponent> {
     final canSign = !_isLoadingRental && !_loadFailed && _hasValidAgreementContent && !_isSigning;
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+      classes: 'rw-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
       [
         div(
           classes:
-              'w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] '
+              'rw-wizard w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] '
               '${isDark ? "bg-zinc-900 border border-zinc-800 text-white" : "bg-white text-zinc-900 shadow-xl"}',
           [
             // Header

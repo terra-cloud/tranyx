@@ -1,5 +1,6 @@
 // ignore_for_file: unnecessary_string_interpolations
 
+import 'panel_chrome.dart';
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -211,7 +212,8 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
   void _loadApprovedRequests(String propertyId) async {
     try {
       final reqs = await component.appState.firestore.getApprovedRequestsForProperty(propertyId);
-      if (mounted) {
+      // Drop the result if the selection changed while loading.
+      if (mounted && _lastPropertyId == propertyId) {
         setState(() {
           _approvedRequests = reqs;
           if (_startDate == null || _isDateBookedWith(_startDate!, reqs) || _hasBookingOverlapWith(_startDate!, reqs)) {
@@ -225,8 +227,10 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
   }
 
   void _loadAutoApplyPromo() async {
+    final startedFor = _lastPropertyId;
     try {
       final activePromos = await component.appState.firestore.getAllActivePromos();
+      if (!mounted || _lastPropertyId != startedFor) return;
       final user = component.appState.userProfile;
       final currentUid = user?.uid;
       if (user == null || currentUid == null) return;
@@ -426,14 +430,23 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
   void _book() async {
     if (_isBooking) return;
+    // Lock the property id this booking was opened for (step 1) and use it for every later step.
+    final lockedId = _lastPropertyId;
     setState(() {
       _isBooking = true;
       _error = null;
     });
 
+    var lockedByUs = false;
     try {
       final rawProp = component.appState.selectedPropertyData;
       if (rawProp == null) throw Exception('No property selected.');
+      if (component.appState.ownsListing(rawProp)) {
+        throw Exception('You cannot book your own listing.');
+      }
+      if (lockedId == null || rawProp['id']?.toString() != lockedId) {
+        throw Exception('The selected listing changed. Please start the booking again.');
+      }
       final p = <String, dynamic>{
         for (final entry in rawProp.entries) entry.key.toString(): entry.value,
       };
@@ -484,7 +497,9 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         return;
       }
 
-      // Submit booking request
+      // Submit booking request (selection is frozen until it returns)
+      component.appState.setBookingLock(lockedId);
+      lockedByUs = true;
       await component.appState.firestore.createPropertyBookingRequest(
         propertyId: p['id']?.toString() ?? '',
         renteeId: currentUid,
@@ -506,19 +521,24 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
         discountAmount: _discountAmount,
       );
 
-      // Close modal & confirm
-      component.appState.setState(() {
-        component.appState.showBookPropertyModal = false;
-        component.appState.selectedPropertyData = null;
-      });
+      // Close modal & confirm — but never clear a selection that is no longer this booking's.
+      component.appState.setBookingLock(null);
+      lockedByUs = false;
+      if (component.appState.selectedPropertyData?['id']?.toString() == lockedId) {
+        component.appState.setState(() {
+          component.appState.showBookPropertyModal = false;
+          component.appState.selectedPropertyData = null;
+        });
+      }
       component.appState.showAppToast('Booking Request Submitted', 'Your booking request has been sent to the property host.');
       try {
         await component.appState.loadRenterPendingRequests();
       } catch (_) {}
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted && _lastPropertyId == lockedId) setState(() => _error = e.toString());
     } finally {
-      setState(() => _isBooking = false);
+      if (lockedByUs) component.appState.setBookingLock(null);
+      if (mounted) setState(() => _isBooking = false);
     }
   }
 
@@ -531,8 +551,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
     final isDark = component.appState.isDark;
     final pData = component.appState.selectedPropertyData!;
 
-    final currentUid = component.appState.userProfile?.uid;
-    final isHost = pData['hostId'] != null && currentUid != null && pData['hostId'] == currentUid;
+    final isHost = component.appState.ownsListing(pData);
 
     final propertyId = pData['id']?.toString();
     if (_lastPropertyId != propertyId) {
@@ -540,6 +559,11 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
       _activeImageIndex = 0;
       _step = 1;
       _licenseNumber = '';
+      _multiplier = 1;
+      _startDate = null;
+      _calendarMonth = DateTime.now();
+      _approvedRequests = [];
+      _error = null;
       final monthlyRate = (pData['priceMonthly'] as num?)?.toDouble() ?? 0.0;
       final weeklyRate = (pData['priceWeekly'] as num?)?.toDouble() ?? 0.0;
       final dailyRate = (pData['priceDaily'] as num?)?.toDouble() ?? 0.0;
@@ -573,17 +597,33 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
 
     final modalCls = isDark ? 'bg-zinc-900 border border-zinc-800 text-white' : 'bg-white text-zinc-900 shadow-xl';
 
+    final panel = component.appState.rentalsPanelMode;
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+      classes: 'rw-page animate-fade-in ${panel ? "rw-panel" : ""}',
       [
         div(
           classes:
-              'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col $modalCls',
+              'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl relative flex flex-col $modalCls',
           [
+            if (panel)
+              rentalPanelBackRow(
+                isDark: isDark,
+                label: _step > 1 ? 'Back' : 'Rentals',
+                onBack: () {
+                  if (_step > 1) {
+                    setState(() => _step--);
+                  } else {
+                    component.appState.setState(() {
+                      component.appState.showBookPropertyModal = false;
+                      component.appState.selectedPropertyData = null;
+                    });
+                  }
+                },
+              ),
             // Header
             div(
               classes:
-                  'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+                  'flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
               [
                 div([
                   div(classes: 'flex items-center gap-2', [
@@ -1129,10 +1169,10 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                       classes:
                           'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
                       events: {
-                        'click': (_) => component.appState.setState(() {
-                          component.appState.showBookPropertyModal = false;
-                          component.appState.showManagePropertyModal = true;
-                        }),
+                        'click': (_) {
+                          final cur = component.appState.selectedPropertyData;
+                          if (cur != null) component.appState.openManageProperty(cur, fromDetails: true);
+                        },
                       },
                       [
                         lIcon('sliders', cls: 'w-4 h-4'),
@@ -1177,6 +1217,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     button(
                       classes:
                           'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                      attributes: _isBooking ? {'disabled': 'disabled', 'aria-busy': 'true'} : {},
                       events: {'click': (_) => _book()},
                       [
                         if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),

@@ -1,3 +1,4 @@
+import 'panel_chrome.dart';
 import 'dart:async';
 import 'package:web/web.dart' as web;
 import 'package:jaspr/dom.dart';
@@ -306,7 +307,8 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   void _loadApprovedRequests(String rentalId) async {
     try {
       final reqs = await component.appState.firestore.getApprovedRequestsForVehicle(rentalId);
-      if (mounted) {
+      // Drop the result if the selection changed while loading.
+      if (mounted && _lastRentalId == rentalId) {
         setState(() {
           _approvedRequests = reqs;
           // Synchronize _startDate to the next available date if current _startDate is uninitialized, booked, or has overlap
@@ -321,8 +323,10 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
   }
 
   void _loadAutoApplyPromo() async {
+    final startedFor = _lastRentalId;
     try {
       final activePromos = await component.appState.firestore.getAllActivePromos();
+      if (!mounted || _lastRentalId != startedFor) return;
       final user = component.appState.userProfile;
       final currentUid = user?.uid;
       if (user == null || currentUid == null) return;
@@ -522,14 +526,23 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
 
   void _book() async {
     if (_isBooking) return;
+    // Lock the rental id this booking was opened for (step 1) and use it for every later step.
+    final lockedId = _lastRentalId;
     setState(() {
       _isBooking = true;
       _error = null;
     });
 
+    var lockedByUs = false;
     try {
       final r = component.appState.selectedRentalData;
       if (r == null) throw Exception('No rental selected.');
+      if (component.appState.ownsListing(r)) {
+        throw Exception('You cannot book your own listing.');
+      }
+      if (lockedId == null || r['id']?.toString() != lockedId) {
+        throw Exception('The selected listing changed. Please start the booking again.');
+      }
       if (!_hireWithDriver) {
         if (_licenseNumber.trim().isEmpty) {
           setState(() => _error = "Driver's license number is required for self-drive bookings.");
@@ -590,7 +603,9 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         return;
       }
 
-      // Submit booking request
+      // Submit booking request (selection is frozen until it returns)
+      component.appState.setBookingLock(lockedId);
+      lockedByUs = true;
       await component.appState.firestore.createBookingRequest(
         rentalId: r['id'],
         renteeId: currentUid,
@@ -611,19 +626,24 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
         discountAmount: _discountAmount,
       );
 
-      // Close modal & confirm
-      component.appState.setState(() {
-        component.appState.showBookVehicleModal = false;
-        component.appState.selectedRentalData = null;
-      });
+      // Close modal & confirm — but never clear a selection that is no longer this booking's.
+      component.appState.setBookingLock(null);
+      lockedByUs = false;
+      if (component.appState.selectedRentalData?['id']?.toString() == lockedId) {
+        component.appState.setState(() {
+          component.appState.showBookVehicleModal = false;
+          component.appState.selectedRentalData = null;
+        });
+      }
       component.appState.showAppToast('Rental Request Submitted', 'Your booking request has been sent to the host.');
       try {
         await component.appState.loadRenterPendingRequests();
       } catch (_) {}
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted && _lastRentalId == lockedId) setState(() => _error = e.toString());
     } finally {
-      setState(() => _isBooking = false);
+      if (lockedByUs) component.appState.setBookingLock(null);
+      if (mounted) setState(() => _isBooking = false);
     }
   }
 
@@ -644,11 +664,8 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     final isDark = component.appState.isDark;
     final r = component.appState.selectedRentalData!;
 
-    // Safety check: do not show / allow renting if it's the owner
-    final currentUid = component.appState.userProfile?.uid;
-    if (r['hostId'] != null && currentUid != null && r['hostId'] == currentUid) {
-      return div([]);
-    }
+    // Owners see the listing details with Edit / Manage Listing (the host footer below) and
+    // never the booking steps; _book() refuses owners as well.
 
     // Reset modal states if the selected vehicle has changed
     final rentalId = r['id']?.toString();
@@ -678,6 +695,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
       _promoCodeInput = '';
       _promoFeedback = null;
       _isValidatingPromo = false;
+      _error = null;
       if (rentalId != null) {
         _loadApprovedRequests(rentalId);
         _loadAutoApplyPromo();
@@ -692,21 +710,36 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
     String type = typeVal?.toString().split('.').last ?? '';
     if (type.toLowerCase() == 'null') type = '';
 
-    final hostId = r['hostId']?.toString();
-    final isHost = component.appState.userProfile?.uid != null && hostId == component.appState.userProfile?.uid;
+    final isHost = component.appState.ownsListing(r);
     final hasPendingRequests = component.appState.hostPendingRequests.any((req) => req['rentalId'] == r['id']);
     final hasActiveRenter = r['renteeId'] != null && (r['renteeId'] as String).isNotEmpty;
     final canEdit = (r['status'] == null || r['status'] == 'Available') && !hasActiveRenter && !hasPendingRequests && _approvedRequests.isEmpty;
 
-    return div(classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in', [
+    final panel = component.appState.rentalsPanelMode;
+    return div(classes: 'rw-page animate-fade-in ${panel ? "rw-panel" : ""}', [
       div(
         classes:
-            'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+            'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
         [
+          if (panel)
+            rentalPanelBackRow(
+              isDark: isDark,
+              label: _step > 1 ? 'Back' : 'Rentals',
+              onBack: () {
+                if (_step > 1) {
+                  setState(() => _step--);
+                } else {
+                  component.appState.setState(() {
+                    component.appState.showBookVehicleModal = false;
+                    component.appState.selectedRentalData = null;
+                  });
+                }
+              },
+            ),
           // Header
           div(
             classes:
-                'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+                'flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
             [
               div([
                 h2(classes: 'text-2xl font-bold', [Component.text('Book $brand $model')]),
@@ -1421,10 +1454,10 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                     classes:
                         'px-6 py-2.5 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-purple-500/20',
                     events: {
-                      'click': (_) => component.appState.setState(() {
-                        component.appState.showBookVehicleModal = false;
-                        component.appState.showManageVehicleModal = true;
-                      }),
+                      'click': (_) {
+                        final cur = component.appState.selectedRentalData;
+                        if (cur != null) component.appState.openManageVehicle(cur, fromDetails: true);
+                      },
                     },
                     [
                       lIcon('sliders', cls: 'w-4 h-4'),
@@ -1494,6 +1527,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                   button(
                     classes:
                         'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer',
+                    attributes: _isBooking ? {'disabled': 'disabled', 'aria-busy': 'true'} : {},
                     events: {'click': (e) => _book()},
                     [
                       if (_isBooking) lIcon('loader', cls: 'w-4 h-4 animate-spin'),

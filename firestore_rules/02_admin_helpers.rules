@@ -2,16 +2,8 @@
     // ADMINISTRATIVE & STAFF AUTHORIZATION HELPERS
     // ------------------------------------------------------------------------
 
-    // Helper to check if the user has an official staff/admin email domain
-    function isStaffEmail() {
-      return isAuthenticated() && request.auth.token.email != null && (
-        request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app|tranyx\\.dev)$')
-      );
-    }
-
-    // Step 1: Zero-read instant verification via Auth Token Claims & Verified Staff Email
+    // Step 1: Zero-read instant verification via Auth Token Claims only. A staff-domain email alone grants
+    // nothing (KAN-144): admin/staff access needs a custom claim set server-side.
     function isAdminTokenOrEmail() {
       return isAuthenticated() && (
         (request.auth.token != null && (
@@ -23,10 +15,7 @@
               'ADMIN', 'STAFF', 'AGENT', 'SUPER_ADMIN'
             ]
           ))
-        )) ||
-        (request.auth.token.email != null &&
-         request.auth.token.email_verified == true &&
-         request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.com|tranyx\\.ph|terra\\.app|tranyx\\.dev)$'))
+        ))
       );
     }
 
@@ -48,11 +37,50 @@
 
     // Step 3: Lazy check on /p2p_agents/{uid} document
     function isP2pAgentInDoc() {
-      return exists(/databases/$(database)/documents/p2p_agents/$(request.auth.uid));
+      // Deactivated agents (isActive:false) lose desk access (KAN-136-B5).
+      let path = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
+      return exists(path) && get(path).data.get('isActive', false) == true;
     }
 
     // Helper to check if the user is an admin, staff member, or registered P2P agent
     function isAdminOrStaff() {
       return isAdminTokenOrEmail() || (isAuthenticated() && (isUserAdminInDoc() || isP2pAgentInDoc()));
+    }
+
+    // Server-issued admin custom claim only. role=agent/staff, a users-doc flag, or an active
+    // p2p_agents doc must not grant or edit privilege / paid-entitlement fields.
+    function isClaimAdmin() {
+      return isAuthenticated() && request.auth.token != null && (
+        ('admin' in request.auth.token && request.auth.token.admin == true) ||
+        ('superadmin' in request.auth.token && request.auth.token.superadmin == true) ||
+        ('role' in request.auth.token && request.auth.token.role in [
+          'admin', 'super_admin', 'superadmin', 'ADMIN', 'SUPER_ADMIN', 'SUPERADMIN'
+        ])
+      );
+    }
+
+    // Custom-claim staff/agent/admin. A users doc or an active p2p_agents doc is not this.
+    function isClaimStaff() {
+      return isAdminTokenOrEmail();
+    }
+
+    // Booking request party. renterId is the escrow alias of renteeId; uid/userId are older request shapes.
+    function isBookingRequestParty(data) {
+      return isAuthenticated() && (
+        data.get('hostId', '') == request.auth.uid ||
+        data.get('renteeId', '') == request.auth.uid ||
+        data.get('renterId', '') == request.auth.uid ||
+        data.get('uid', '') == request.auth.uid ||
+        data.get('userId', '') == request.auth.uid
+      );
+    }
+
+    // Claim-admin metadata touch only. Amount, status, and party fields stay on the money callables.
+    function clientEscrowUpdateOk() {
+      return isClaimAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'amount', 'status', 'employerFees', 'totalEscrowed', 'refundAmount', 'price', 'payout',
+        'releasedAmount', 'releasedTo', 'refundedTo', 'employerId', 'creatorId', 'workerId',
+        'nyxianId', 'hostId', 'renteeId', 'renterId', 'totalPaid', 'holdbackAmount'
+      ]);
     }
 

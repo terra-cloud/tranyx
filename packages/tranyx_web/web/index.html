@@ -1,5 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+  <script>
+    // Apply theme before first paint: stored preference, else OS prefers-color-scheme.
+    (function () {
+      try {
+        var pref = localStorage.getItem('tranyx_theme_preference');
+        var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var root = document.documentElement;
+        root.classList.add(dark ? 'dark' : 'light');
+        root.classList.remove(dark ? 'light' : 'dark');
+        root.setAttribute('data-theme', dark ? 'dark' : 'light');
+        root.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    })();
+  </script>
+
 
 <head>
   <meta charset="utf-8">
@@ -39,7 +54,10 @@
         extend: {
           fontFamily: {
             sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            'dm-sans': ['DM Sans', 'Inter', 'system-ui', 'sans-serif'],
           },
+          // W01 breakpoints: <640 mobile · 640–1023 tablet · ≥1024 desktop
+          // (matches Tailwind defaults sm=640 / lg=1024)
         },
       },
     };
@@ -48,6 +66,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore-compat.js" crossorigin="anonymous"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-check-compat.js" crossorigin="anonymous"></script>
 
   <!-- Buffer Polyfill loaded BEFORE Solana web3.js -->
   <script src="/buffer.min.js"></script>
@@ -69,10 +88,17 @@
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+  <!-- pdf.js 3.11.174 pinned with SRI (sha384 of the exact cdnjs files). The worker is loaded as a SRI-checked
+       script so pdf.js runs it on the main thread (window.pdfjsWorker) instead of fetching an unpinned worker URL.
+       Follow-up: move to pdf.js 4.x (CVE-2024-4367 is mitigated here by isEvalSupported:false); 4.x changes the
+       module/worker paths and must be re-pinned together with the KAN-142 CSP. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js" integrity="sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="styles.css">
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
     rel="stylesheet">
 
   <style>
@@ -83,10 +109,16 @@
       padding: 0;
       margin: 0;
       font-family: 'Inter', sans-serif;
+    }
+    html.dark, html.dark body {
       background-color: #09090b;
-      /* zinc-950 */
       color: #fafafa;
-      /* zinc-50 */
+      color-scheme: dark;
+    }
+    html.light, html.light body {
+      background-color: #f4f4f5;
+      color: #18181b;
+      color-scheme: light;
     }
 
     /* Refined Premium Web Splash Screen Styling */
@@ -528,7 +560,7 @@
         return null;
       }
       if (type === 'trust') {
-        return window.trustWallet?.solana || (window.solana?.isTrust ? window.solana : null);
+        return window.trustwallet?.solana || window.trustWallet?.solana || (window.solana?.isTrust ? window.solana : null);
       }
       if (type === 'solflare') {
         return window.solflare || (window.solana?.isSolflare ? window.solana : null);
@@ -536,7 +568,7 @@
       if (type === 'backpack') {
         return window.backpack || (window.solana?.isBackpack ? window.solana : null);
       }
-      return window.phantom?.solana || window.solflare || window.backpack || window.trustWallet?.solana || window.solana || null;
+      return window.phantom?.solana || window.solflare || window.backpack || window.trustwallet?.solana || window.trustWallet?.solana || window.solana || null;
     }
 
     window.getDetectedSolanaWallets = function () {
@@ -544,7 +576,7 @@
       if (window.phantom?.solana || window.solana?.isPhantom) wallets.push('phantom');
       if (window.solflare || window.solana?.isSolflare) wallets.push('solflare');
       if (window.backpack || window.solana?.isBackpack) wallets.push('backpack');
-      if (window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
+      if (window.trustwallet?.solana || window.trustWallet?.solana || window.solana?.isTrust) wallets.push('trust');
       if (wallets.length === 0 && window.solana) wallets.push('phantom');
       return wallets;
     };
@@ -598,22 +630,89 @@
       };
     }
 
-    window.connectSolanaWallet = async function (type) {
-      let targetType = type || window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
-      let provider = getSolanaProvider(targetType);
-      if (!provider) {
-        const detected = window.getDetectedSolanaWallets();
-        if (detected.length > 0) {
-          targetType = detected[0];
-          provider = getSolanaProvider(targetType);
-        }
+    const WALLET_NAMES = { phantom: 'Phantom', solflare: 'Solflare', backpack: 'Backpack', trust: 'Trust Wallet' };
+    const walletName = (t) => WALLET_NAMES[t] || (t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Solana');
+    window.isMobileBrowser = function () { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); };
+
+    // Wallet extensions inject their provider a moment after load: wait briefly before saying "not installed".
+    async function waitForProvider(type, ms) {
+      const end = Date.now() + ms;
+      let p = getSolanaProvider(type);
+      while (!p && Date.now() < end) {
+        await new Promise((r) => setTimeout(r, 100));
+        p = getSolanaProvider(type);
       }
-      if (!provider) throw new Error((targetType.charAt(0).toUpperCase() + targetType.slice(1)) + " Wallet is not installed.");
+      return p;
+    }
+
+    // Mobile browser without an injected provider: reopen this page inside the wallet app's in-app browser
+    // (universal link), where the provider exists. The wallet + action ride in the URL and are picked up by
+    // consumeWalletLaunchIntent() on load.
+    window.openSolanaWalletApp = function (type, action) {
+      const url = new URL(window.location.href);
+      url.hash = '';
+      url.searchParams.set('wallet', type);
+      url.searchParams.set('walletAction', action || 'signin');
+      const target = encodeURIComponent(url.toString());
+      const ref = encodeURIComponent(window.location.origin);
+      const links = {
+        phantom: 'https://phantom.app/ul/browse/' + target + '?ref=' + ref,
+        solflare: 'https://solflare.com/ul/v1/browse/' + target + '?ref=' + ref,
+        backpack: 'https://backpack.app/ul/v1/browse/' + target + '?ref=' + ref,
+        trust: 'https://link.trustwallet.com/open_url?coin_id=501&url=' + target,
+      };
+      if (!links[type]) return false;
+      window.location.href = links[type];
+      return true;
+    };
+
+    window.consumeWalletLaunchIntent = function () {
+      try {
+        const url = new URL(window.location.href);
+        const wallet = url.searchParams.get('wallet');
+        const action = url.searchParams.get('walletAction');
+        if (!wallet || !action) return null;
+        url.searchParams.delete('wallet');
+        url.searchParams.delete('walletAction');
+        window.history.replaceState(null, '', url.pathname + (url.search || '') + url.hash);
+        if (!WALLET_NAMES[wallet]) return null;
+        return JSON.stringify({ wallet: wallet, action: action });
+      } catch (e) {
+        return null;
+      }
+    };
+
+    // Resolves the provider for the SELECTED wallet only. Never silently swaps in a different wallet.
+    async function requireSolanaProvider(type, action) {
+      const t = type || window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || null;
+      if (!t) {
+        const detected = window.getDetectedSolanaWallets();
+        if (detected.length === 0) throw new Error('No Solana wallet found. Install Phantom, Solflare, Backpack or Trust Wallet.');
+        return { type: detected[0], provider: getSolanaProvider(detected[0]) };
+      }
+      let provider = getSolanaProvider(t);
+      if (!provider && !window.isMobileBrowser()) provider = await waitForProvider(t, 1500);
+      if (!provider && !localStorage.getItem('selectedSolanaWallet')) {
+        // Nothing was ever selected (only a default was asked for): use what is installed. A real selection is never swapped.
+        const detected = window.getDetectedSolanaWallets();
+        if (detected.length > 0) return { type: detected[0], provider: getSolanaProvider(detected[0]) };
+      }
+      if (!provider) {
+        if (window.isMobileBrowser() && window.openSolanaWalletApp(t, action || 'signin')) throw new Error('WALLET_APP_REDIRECT');
+        throw new Error(walletName(t) + ' Wallet is not installed.');
+      }
+      return { type: t, provider: provider };
+    }
+
+    window.connectSolanaWallet = async function (type) {
+      const r = await requireSolanaProvider(type, 'signin');
+      const targetType = r.type;
+      const provider = r.provider;
       window.selectedSolanaWallet = targetType;
       localStorage.setItem('selectedSolanaWallet', targetType);
       const resp = await provider.connect();
       const pubKey = resp?.publicKey || provider.publicKey;
-      if (!pubKey) throw new Error("Could not retrieve public key from " + targetType + " Wallet.");
+      if (!pubKey) throw new Error("Could not retrieve public key from " + walletName(targetType) + ".");
       setupSolanaWalletListeners(provider, targetType);
       return pubKey.toString();
     };
@@ -659,19 +758,11 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || null;
         console.log("Using wallet type:", type);
-        let solana = getSolanaProvider(type);
-        if (!solana) {
-          const detected = window.getDetectedSolanaWallets();
-          if (detected.length > 0) {
-            type = detected[0];
-            solana = getSolanaProvider(type);
-          }
-        }
-        if (!solana) {
-          throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
-        }
+        const resolved = await requireSolanaProvider(type, 'pay');
+        type = resolved.type;
+        const solana = resolved.provider;
         if (!solana.publicKey) {
           try {
             await solana.connect();
@@ -682,6 +773,10 @@
         console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
         if (!solana.publicKey) {
           throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected. Please approve the connection in your browser extension.");
+        }
+
+        if (fromAddress && solana.publicKey.toString() !== fromAddress) {
+          throw new Error("The selected wallet account does not match the linked wallet. Switch accounts in " + walletName(type) + " and try again.");
         }
 
         let fallbackRpc = "https://api.testnet.solana.com";
@@ -752,17 +847,11 @@
         if (!window.solanaWeb3) {
           throw new Error("Solana Web3 library is not loaded.");
         }
-        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || 'phantom';
+        let type = window.selectedSolanaWallet || localStorage.getItem('selectedSolanaWallet') || null;
         console.log("Using wallet type:", type);
-        let solana = getSolanaProvider(type);
-        if (!solana) {
-          const detected = window.getDetectedSolanaWallets();
-          if (detected.length > 0) {
-            type = detected[0];
-            solana = getSolanaProvider(type);
-          }
-        }
-        if (!solana) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not installed.");
+        const resolved = await requireSolanaProvider(type, 'pay');
+        type = resolved.type;
+        const solana = resolved.provider;
         if (!solana.publicKey) {
           try {
             await solana.connect();
@@ -772,6 +861,10 @@
         }
         console.log("Solana provider found:", !!solana, "Public key:", solana.publicKey ? solana.publicKey.toString() : "null");
         if (!solana.publicKey) throw new Error((type.charAt(0).toUpperCase() + type.slice(1)) + " Wallet is not connected. Please approve the connection in your browser extension.");
+
+        if (fromAddress && solana.publicKey.toString() !== fromAddress) {
+          throw new Error("The selected wallet account does not match the linked wallet. Switch accounts in " + walletName(type) + " and try again.");
+        }
 
         let fallbackRpc = "https://api.testnet.solana.com";
         let fallbackUsdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
@@ -900,7 +993,7 @@
         const encodedMessage = new TextEncoder().encode(message);
         const signedResult = await provider.signMessage(encodedMessage, "utf8");
         // Convert Uint8Array signature to base58
-        const signatureBytes = signedResult.signature;
+        const signatureBytes = signedResult && signedResult.signature ? signedResult.signature : signedResult;
         if (!signatureBytes) {
           throw new Error("Could not retrieve signature bytes from signed result.");
         }
@@ -940,160 +1033,26 @@
       }
     };
 
-    function decodeBase58(str) {
-      const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-      const ALPHABET_MAP = {};
-      for (let i = 0; i < ALPHABET.length; i++) ALPHABET_MAP[ALPHABET.charAt(i)] = i;
-      let bytes = [0];
-      for (let i = 0; i < str.length; i++) {
-        const c = str.charAt(i);
-        const val = ALPHABET_MAP[c];
-        if (val === undefined) throw new Error('Invalid Base58 character: ' + c);
-        for (let j = 0; j < bytes.length; j++) bytes[j] *= 58;
-        bytes[0] += val;
-        let carry = 0;
-        for (let j = 0; j < bytes.length; j++) {
-          bytes[j] += carry;
-          carry = bytes[j] >> 8;
-          bytes[j] &= 0xff;
-        }
-        while (carry > 0) {
-          bytes.push(carry & 0xff);
-          carry >>= 8;
-        }
-      }
-      for (let i = 0; i < str.length && str.charAt(i) === '1'; i++) bytes.push(0);
-      return new Uint8Array(bytes.reverse());
-    }
-
-    window.broadcastTreasuryTransfer = async function (treasuryPrivKeyBase58, recipientPubkey, lamports, rpcUrl) {
-      console.log("broadcastTreasuryTransfer started", recipientPubkey, lamports, rpcUrl);
-      ensureBuffer();
+    // App Check for money callables. Firebase JS 10.12 treats a string passed to activate() as
+    // ReCaptchaV3Provider (exchangeRecaptchaV3Token). Production registration is reCAPTCHA
+    // Enterprise / Fraud Defense (exchangeRecaptchaEnterpriseToken). A classic token is not
+    // substituted: if the Enterprise provider is missing, no token is returned and enforced
+    // callables stay fail-closed.
+    window.getAppCheckToken = async function (config, siteKey) {
       try {
-        if (!window.solanaWeb3) throw new Error("Solana Web3 is not loaded.");
-        let fallbackRpc = "https://api.testnet.solana.com";
-        try {
-          const hostname = window.location.hostname;
-          if (hostname.includes("uat") || hostname.includes("devnet")) {
-            fallbackRpc = "https://api.devnet.solana.com";
-          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
-            fallbackRpc = "https://api.mainnet-beta.solana.com";
-          }
-        } catch (e) {}
-        const finalRpc = rpcUrl || fallbackRpc;
-        const connection = new solanaWeb3.Connection(finalRpc, "confirmed");
-
-        const secretKey = decodeBase58(treasuryPrivKeyBase58);
-        const keypair = solanaWeb3.Keypair.fromSecretKey(secretKey);
-        const toPubkey = new solanaWeb3.PublicKey(recipientPubkey);
-
-        const transaction = new solanaWeb3.Transaction().add(
-          solanaWeb3.SystemProgram.transfer({
-            fromPubkey: keypair.publicKey,
-            toPubkey: toPubkey,
-            lamports: Math.round(lamports),
-          })
-        );
-
-        const signature = await solanaWeb3.sendAndConfirmTransaction(
-          connection,
-          transaction,
-          [keypair],
-          { commitment: 'confirmed' }
-        );
-        console.log("Treasury transfer broadcasted successfully. Signature:", signature);
-        return signature;
-      } catch (error) {
-        console.error("broadcastTreasuryTransfer failed:", error);
-        throw error;
-      }
-    };
-
-    window.broadcastTreasuryTokenTransfer = async function (treasuryPrivKeyBase58, recipientPubkey, amountInUsdt, rpcUrl, tokenMint) {
-      console.log("broadcastTreasuryTokenTransfer started", recipientPubkey, amountInUsdt, rpcUrl, tokenMint);
-      ensureBuffer();
-      try {
-        if (!window.solanaWeb3) throw new Error("Solana Web3 is not loaded.");
-        let fallbackRpc = "https://api.testnet.solana.com";
-        try {
-          const hostname = window.location.hostname;
-          if (hostname.includes("uat") || hostname.includes("devnet")) {
-            fallbackRpc = "https://api.devnet.solana.com";
-          } else if (hostname.includes("prod") || (hostname.includes("tranyx") && !hostname.includes("dev") && !hostname.includes("uat"))) {
-            fallbackRpc = "https://api.mainnet-beta.solana.com";
-          }
-        } catch (e) {}
-        const finalRpc = rpcUrl || fallbackRpc;
-        const connection = new solanaWeb3.Connection(finalRpc, "confirmed");
-
-        const secretKey = decodeBase58(treasuryPrivKeyBase58);
-        const keypair = solanaWeb3.Keypair.fromSecretKey(secretKey);
-        const toPubkey = new solanaWeb3.PublicKey(recipientPubkey);
-        const mintAddress = tokenMint || "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr";
-        const mintPubkey = new solanaWeb3.PublicKey(mintAddress);
-
-        const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-        const ASSOCIATED_TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-
-        const fromAta = solanaWeb3.PublicKey.findProgramAddressSync(
-          [keypair.publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )[0];
-
-        const toAta = solanaWeb3.PublicKey.findProgramAddressSync(
-          [toPubkey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )[0];
-
-        const transaction = new solanaWeb3.Transaction();
-
-        const toAtaInfo = await connection.getAccountInfo(toAta);
-        if (!toAtaInfo) {
-          transaction.add(
-            new solanaWeb3.TransactionInstruction({
-              keys: [
-                { pubkey: keypair.publicKey, isSigner: true, isWritable: true },
-                { pubkey: toAta, isSigner: false, isWritable: true },
-                { pubkey: toPubkey, isSigner: false, isWritable: false },
-                { pubkey: mintPubkey, isSigner: false, isWritable: false },
-                { pubkey: solanaWeb3.SystemProgram.programId, isSigner: false, isWritable: false },
-                { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-              ],
-              programId: ASSOCIATED_TOKEN_PROGRAM_ID,
-              data: new Uint8Array(0),
-            })
-          );
+        if (!siteKey || !window.firebase || !firebase.appCheck) return null;
+        const Enterprise = firebase.appCheck.ReCaptchaEnterpriseProvider;
+        if (typeof Enterprise !== 'function') return null;
+        if (!firebase.apps.length) firebase.initializeApp(config);
+        if (!window.__tyxAppCheckActive) {
+          firebase.appCheck().activate(new Enterprise(siteKey), true);
+          window.__tyxAppCheckActive = true;
         }
-
-        const microUnits = Math.round(amountInUsdt * 1000000);
-        const data = new Uint8Array(9);
-        data[0] = 3; // Transfer instruction index = 3
-        const view = new DataView(data.buffer);
-        view.setBigUint64(1, BigInt(microUnits), true);
-
-        transaction.add(
-          new solanaWeb3.TransactionInstruction({
-            keys: [
-              { pubkey: fromAta, isSigner: false, isWritable: true },
-              { pubkey: toAta, isSigner: false, isWritable: true },
-              { pubkey: keypair.publicKey, isSigner: true, isWritable: false },
-            ],
-            programId: TOKEN_PROGRAM_ID,
-            data: data,
-          })
-        );
-
-        const signature = await solanaWeb3.sendAndConfirmTransaction(
-          connection,
-          transaction,
-          [keypair],
-          { commitment: 'confirmed' }
-        );
-        console.log("Treasury token transfer broadcasted. Signature:", signature);
-        return signature;
-      } catch (error) {
-        console.error("broadcastTreasuryTokenTransfer failed:", error);
-        throw error;
+        const t = await firebase.appCheck().getToken();
+        return t && t.token ? t.token : null;
+      } catch (e) {
+        console.warn("App Check unavailable:", e);
+        return null;
       }
     };
 
@@ -1337,6 +1296,13 @@
       }
     };
 
+    window.signInWithCustomTokenJs = async function (config, customToken) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(config);
+      }
+      await firebase.auth().signInWithCustomToken(customToken);
+    };
+
     window.signOutJs = async function () {
       if (!firebase.apps.length) return;
       try {
@@ -1465,6 +1431,26 @@
       firebase.firestore().collection('notifications').doc(notifId).update({ isRead: true });
     };
 
+    async function withListingLocations(db, collectionName, docs) {
+      if (!firebase.auth().currentUser || !docs.length) return docs;
+      return Promise.all(docs.map(async function (doc) {
+        try {
+          const loc = await db.collection(collectionName).doc(doc.id).collection('private').doc('location').get();
+          return loc.exists ? Object.assign({}, doc, loc.data()) : doc;
+        } catch (e) {
+          return doc;
+        }
+      }));
+    }
+
+    function emitListingDocs(db, collectionName, docs, callback) {
+      if (!firebase.auth().currentUser) {
+        callback(docs);
+        return;
+      }
+      withListingLocations(db, collectionName, docs).then(callback);
+    }
+
     window.listenToJobs = function (uid, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
@@ -1474,7 +1460,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify({ type: 'employer', jobs: list }));
+          emitListingDocs(db, 'jobs', list, function (jobs) {
+            callback(JSON.stringify({ type: 'employer', jobs: jobs }));
+          });
         }, (error) => {
           console.error("Employer jobs listener error:", error);
         });
@@ -1484,7 +1472,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify({ type: 'nyxian', jobs: list }));
+          emitListingDocs(db, 'jobs', list, function (jobs) {
+            callback(JSON.stringify({ type: 'nyxian', jobs: jobs }));
+          });
         }, (error) => {
           console.error("Nyxian jobs listener error:", error);
         });
@@ -1495,7 +1485,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify({ type: 'open_jobs', jobs: list }));
+          emitListingDocs(db, 'jobs', list, function (jobs) {
+            callback(JSON.stringify({ type: 'open_jobs', jobs: jobs }));
+          });
         }, (error) => {
           console.error("Open jobs listener error:", error);
         });
@@ -1533,11 +1525,38 @@
         }
       };
 
+      let privateLocation = null;
+      let unsubLoc = null;
+      const emitJob = () => {
+        if (!currentJobData) return;
+        const merged = privateLocation ? Object.assign({}, currentJobData, privateLocation) : currentJobData;
+        callback(JSON.stringify({ type: 'job', data: Object.assign({}, merged, { id: jobId }) }));
+      };
+      const bindLocation = (user) => {
+        if (unsubLoc) {
+          unsubLoc();
+          unsubLoc = null;
+        }
+        privateLocation = null;
+        if (!user || isUnsubscribed) {
+          emitJob();
+          return;
+        }
+        unsubLoc = db.collection('jobs').doc(jobId).collection('private').doc('location')
+          .onSnapshot((loc) => {
+            privateLocation = loc.exists ? loc.data() : null;
+            emitJob();
+          }, () => {
+            privateLocation = null;
+            emitJob();
+          });
+      };
+
       const unsubJob = db.collection('jobs').doc(jobId)
         .onSnapshot((doc) => {
           if (doc.exists) {
             currentJobData = doc.data();
-            callback(JSON.stringify({ type: 'job', data: { ...currentJobData, id: doc.id } }));
+            emitJob();
             setupAppsListener(firebase.auth().currentUser);
           }
         }, (error) => {
@@ -1546,15 +1565,15 @@
 
       const unsubAuth = firebase.auth().onAuthStateChanged((user) => {
         setupAppsListener(user);
+        bindLocation(user);
       });
 
       return () => {
         isUnsubscribed = true;
         unsubJob();
         unsubAuth();
-        if (unsubApps) {
-          unsubApps();
-        }
+        if (unsubApps) unsubApps();
+        if (unsubLoc) unsubLoc();
       };
     };
 
@@ -1565,7 +1584,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify(list));
+          emitListingDocs(db, 'rentals', list, function (merged) {
+            callback(JSON.stringify(merged));
+          });
         }, (error) => {
           console.error("Rentals list listener error:", error);
         });
@@ -1575,15 +1596,48 @@
     window.listenToRentalDetails = function (rentalId, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
+      let publicData = null;
+      let privateLocation = null;
+      let unsubLoc = null;
+      const emit = () => {
+        if (!publicData) return;
+        const merged = privateLocation ? Object.assign({}, publicData, privateLocation) : publicData;
+        callback(JSON.stringify(Object.assign({}, merged, { id: rentalId })));
+      };
+      const bindLocation = (user) => {
+        if (unsubLoc) {
+          unsubLoc();
+          unsubLoc = null;
+        }
+        privateLocation = null;
+        if (!user) {
+          emit();
+          return;
+        }
+        unsubLoc = db.collection('rentals').doc(rentalId).collection('private').doc('location')
+          .onSnapshot((loc) => {
+            privateLocation = loc.exists ? loc.data() : null;
+            emit();
+          }, () => {
+            privateLocation = null;
+            emit();
+          });
+      };
       const unsub = db.collection('rentals').doc(rentalId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
+            publicData = doc.data();
+            emit();
           }
         }, (error) => {
           console.error("Rental details listener error:", error);
         });
-      return unsub;
+      const unsubAuth = firebase.auth().onAuthStateChanged(bindLocation);
+      return () => {
+        unsub();
+        unsubAuth();
+        if (unsubLoc) unsubLoc();
+      };
     };
 
     window.listenToRenterRequests = function (renteeId, callback) {
@@ -2050,20 +2104,6 @@
       return 'ok';
     };
 
-    window.uploadChatPhoto = async function (chatId, base64Data, mimeType) {
-      if (!firebase.apps.length) return null;
-      try {
-        const storage = firebase.storage();
-        const ref = storage.ref(`chat_photos/${chatId}/${Date.now()}`);
-        const blob = await fetch('data:' + mimeType + ';base64,' + base64Data).then(r => r.blob());
-        const snap = await ref.put(blob, { contentType: mimeType });
-        return await snap.ref.getDownloadURL();
-      } catch (e) {
-        console.error('uploadChatPhoto error', e);
-        return null;
-      }
-    };
-
     // ── Signature Pad ──────────────────────────────────────────────────────────
     window.initSignaturePad = function (canvasId) {
       const canvas = document.getElementById(canvasId);
@@ -2135,16 +2175,21 @@
           console.warn("PDF.js library not loaded yet.");
           return JSON.stringify({ success: false, error: "PDF.js viewer library is loading or unavailable." });
         }
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        if (!window.pdfjsWorker) {
+          // The SRI-pinned worker script did not load (offline or integrity mismatch): never fall back to an unpinned URL.
+          return JSON.stringify({ success: false, error: "PDF.js worker is unavailable." });
+        }
 
         // Document Cache to avoid re-parsing on every page turn or zoom
         window._pdfDocCache = window._pdfDocCache || {};
-        const cacheKey = typeof pdfSource === 'string'
-          ? (pdfSource.length > 256 ? pdfSource.slice(0, 64) + '_' + pdfSource.length : pdfSource)
-          : 'doc_default';
+        // Key on a SHA-256 of the full content (never a prefix + length, which collides for edited files).
+        let cacheKey = null;
+        if (typeof pdfSource === 'string' && window.crypto && window.crypto.subtle) {
+          const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(pdfSource));
+          cacheKey = 'sha256_' + Array.from(new Uint8Array(digest)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+        }
 
-        let pdf = window._pdfDocCache[cacheKey];
+        let pdf = cacheKey ? window._pdfDocCache[cacheKey] : null;
         if (!pdf) {
           let loadingTask;
           if (typeof pdfSource === 'string' && pdfSource.startsWith('data:')) {
@@ -2157,12 +2202,12 @@
             for (let i = 0; i < len; i++) {
               bytes[i] = binaryStr.charCodeAt(i);
             }
-            loadingTask = window.pdfjsLib.getDocument({ data: bytes });
+            loadingTask = window.pdfjsLib.getDocument({ data: bytes, isEvalSupported: false });
           } else {
-            loadingTask = window.pdfjsLib.getDocument(pdfSource);
+            loadingTask = window.pdfjsLib.getDocument({ url: pdfSource, isEvalSupported: false });
           }
           pdf = await loadingTask.promise;
-          window._pdfDocCache[cacheKey] = pdf;
+          if (cacheKey) window._pdfDocCache[cacheKey] = pdf;
         }
 
         const totalPages = pdf.numPages;
@@ -2226,12 +2271,31 @@
       }
     };
 
+    // Opens a (client-validated) PDF in a new tab. data: PDFs go through a Blob URL because Chrome
+    // blocks top-level navigation to data: URLs.
+    window.openPdfInNewTab = function (pdfSource) {
+      try {
+        let url = pdfSource;
+        if (typeof pdfSource === 'string' && pdfSource.startsWith('data:application/pdf;base64,')) {
+          const bin = window.atob(pdfSource.substring(pdfSource.indexOf(',') + 1));
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+        }
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch (e) {
+        console.error('openPdfInNewTab error', e);
+      }
+    };
+
     window.downloadPdfFile = function (pdfSource, fileName) {
       try {
         const link = document.createElement('a');
         link.href = pdfSource;
         link.download = fileName || 'contract_document.pdf';
         link.target = '_blank';
+        link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -2361,7 +2425,9 @@
         .onSnapshot((snapshot) => {
           const list = [];
           snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id }));
-          callback(JSON.stringify(list));
+          emitListingDocs(db, 'properties', list, function (merged) {
+            callback(JSON.stringify(merged));
+          });
         }, (error) => {
           console.error("Properties list listener error:", error);
         });
@@ -2371,15 +2437,48 @@
     window.listenToPropertyDetails = function (propertyId, callback) {
       if (!firebase.apps.length) return () => { };
       const db = firebase.firestore();
+      let publicData = null;
+      let privateLocation = null;
+      let unsubLoc = null;
+      const emit = () => {
+        if (!publicData) return;
+        const merged = privateLocation ? Object.assign({}, publicData, privateLocation) : publicData;
+        callback(JSON.stringify(Object.assign({}, merged, { id: propertyId })));
+      };
+      const bindLocation = (user) => {
+        if (unsubLoc) {
+          unsubLoc();
+          unsubLoc = null;
+        }
+        privateLocation = null;
+        if (!user) {
+          emit();
+          return;
+        }
+        unsubLoc = db.collection('properties').doc(propertyId).collection('private').doc('location')
+          .onSnapshot((loc) => {
+            privateLocation = loc.exists ? loc.data() : null;
+            emit();
+          }, () => {
+            privateLocation = null;
+            emit();
+          });
+      };
       const unsub = db.collection('properties').doc(propertyId)
         .onSnapshot((doc) => {
           if (doc.exists) {
-            callback(JSON.stringify({ ...doc.data(), id: doc.id }));
+            publicData = doc.data();
+            emit();
           }
         }, (error) => {
           console.error("Property details listener error:", error);
         });
-      return unsub;
+      const unsubAuth = firebase.auth().onAuthStateChanged(bindLocation);
+      return () => {
+        unsub();
+        unsubAuth();
+        if (unsubLoc) unsubLoc();
+      };
     };
 
     window.listenToPropertyRenterRequests = function (renteeId, callback) {
@@ -2420,10 +2519,9 @@
   <div id="recaptcha-container"></div>
 
   <!-- Web Splash Screen -->
-  <div id="tranyx-web-splash">
-    <div class="splash-orb splash-orb-1"></div>
-    <div class="splash-orb splash-orb-2"></div>
-    <div class="splash-orb splash-orb-3"></div>
+  <div id="tranyx-web-splash" class="w00-splash">
+    <div class="brand-orb brand-orb-a"></div>
+    <div class="brand-orb brand-orb-b"></div>
     <div class="splash-grid"></div>
     <div class="splash-shockwave"></div>
     <div class="splash-shockwave splash-shockwave-2"></div>

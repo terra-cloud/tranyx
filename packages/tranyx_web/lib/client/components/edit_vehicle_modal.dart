@@ -10,6 +10,7 @@ import '../../components/map_picker.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
+import '../../components/pdf_source_guard.dart';
 import 'pdf_viewer_modal.dart';
 
 class EditVehicleModalComponent extends StatefulComponent {
@@ -27,6 +28,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
   String? _rentalId;
 
   void _scrollToTop() {
+    if (!_multiStep) return;
     void doScroll() {
       try {
         (web.document.activeElement as web.HTMLElement?)?.blur();
@@ -70,6 +72,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
   }
 
   void _onEnterStep(int targetStep) {
+    if (!_multiStep) return;
     if (targetStep == 2) {
       _isEnteringStep2 = true;
       _scrollToTop();
@@ -465,6 +468,36 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
     _onEnterStep(nextStep);
   }
 
+  // W36 page mode: every former wizard step renders as one section on a single page.
+  bool get _multiStep => false;
+
+  /// Validates the old step 1 and step 2 gates in order, then runs the existing submit.
+  void _publish() {
+    if (_isSubmitting) return;
+    setState(() => _error = null);
+    for (var i = 1; i <= 2; i++) {
+      _step = i;
+      _handleNext();
+      if (_error != null) {
+        _step = i;
+        return;
+      }
+    }
+    _submit();
+  }
+
+  Component _pageHead(bool isDark) {
+    return div(classes: 'max-w-3xl mx-auto w-full mb-6 space-y-3', [
+      h1(
+        classes: 'm-0 text-[28px] md:text-[32px] leading-10 font-bold tracking-tight ${isDark ? "text-zinc-50" : "text-[#18181b]"}',
+        [Component.text('Edit listing')],
+      ),
+      p(classes: 'm-0 text-[15px] leading-[22px] ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+        Component.text('Update the details below. Every field stays editable on one page.'),
+      ]),
+    ]);
+  }
+
   @override
   Component build(BuildContext context) {
     if (!component.appState.showEditVehicleModal) {
@@ -480,12 +513,13 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
     }
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in',
+      classes: 'rw-page animate-fade-in',
       [
+      _pageHead(isDark),
         div(
           id: 'edit-vehicle-modal-container',
           classes:
-              'w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+              'rw-wizard rw-wizard-page w-full max-w-3xl mx-auto rounded-3xl relative flex flex-col ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
           events: {
             'wheel': (e) => _isEnteringStep2 = false,
             'touchmove': (e) => _isEnteringStep2 = false,
@@ -502,12 +536,13 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
             // Header
             div(
               classes:
-                  'sticky top-0 z-10 flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
+                  'flex items-center justify-between p-6 border-b ${isDark ? "bg-zinc-900/90 border-zinc-800" : "bg-white/90 border-zinc-100"} backdrop-blur-md',
               [
                 div([
+                  span(classes: 'rw-badge', [Component.text('List / Edit vehicle')]),
                   h2(classes: 'text-2xl font-bold', [Component.text('Edit Vehicle Listing')]),
                   p(classes: 'text-sm ${isDark ? "text-zinc-400" : "text-zinc-500"}', [
-                    Component.text('Step $_step of 3 • Free Edit (No fees)'),
+                    Component.text('Free Edit (No fees)'),
                   ]),
                 ]),
                 button(
@@ -524,7 +559,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
             div(classes: 'p-6 flex-1 space-y-6', [
               div(id: 'edit-vehicle-modal-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
 
-              if (_step == 1) ...[
+              ...[
                 // Step 1: Specs
                 h3(classes: 'text-lg font-bold mb-4', [Component.text('Vehicle Specifications')]),
 
@@ -752,7 +787,9 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                     ]),
                   ],
                 ),
-              ] else if (_step == 2) ...[
+              ],
+            div(classes: 'rw-sep', []),
+            ...[
                 // Step 2: Pricing & Location
                 div(id: 'edit-step-2-pricing-top', classes: 'h-0 w-full p-0 m-0 overflow-hidden', []),
                 h3(classes: 'text-lg font-bold mb-4', [Component.text('Pricing & Location')]),
@@ -874,7 +911,9 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                   ]),
                   MapPickerComponent(state: component.appState),
                 ]),
-              ] else if (_step == 3) ...[
+              ],
+            div(classes: 'rw-sep', []),
+            ...[
                 // Step 3: Photos & Legal
                 h3(classes: 'text-lg font-bold mb-4', [Component.text('Photos & Legal Terms')]),
                 div(classes: 'space-y-4 mb-6', [
@@ -1076,7 +1115,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                             Component.text('Upload Custom Contract (PDF)'),
                           ]),
                           p(classes: 'text-xs text-zinc-400 max-w-sm', [
-                            Component.text('Upload your official rental agreement document. Accepted format: .pdf (Max 5MB).'),
+                            Component.text('Upload your official rental agreement document. Accepted format: .pdf (Max 700 KB).'),
                           ]),
                           label(
                             classes:
@@ -1143,11 +1182,11 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                                   }
 
                                   final size = (file.getProperty('size'.toJS) as JSNumber).toDartInt;
-                                  if (size > CustomContractHelper.maxFileSizeBytes) {
+                                  if (size > kLeasePdfMaxBytes) {
                                     if (targetObj.hasProperty('value'.toJS).toDart) {
                                       targetObj.setProperty('value'.toJS, ''.toJS);
                                     }
-                                    setState(() => _error = 'File size exceeds the 5MB limit (${CustomContractHelper.formatFileSize(size)}). Please choose a smaller PDF.');
+                                    setState(() => _error = 'This PDF is too large (${CustomContractHelper.formatFileSize(size)}). Lease PDFs are limited to ${formatPdfLimit()} — compress it or upload a shorter version.');
                                     return;
                                   }
 
@@ -1165,7 +1204,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                                     }
 
                                     // Magic byte check for PDF (%PDF base64 begins with JVBERi)
-                                    if (!dataUrl.startsWith('data:application/pdf') && !dataUrl.contains('JVBERi')) {
+                                    if (!isSafePdfDataUrl(dataUrl)) {
                                       if (targetObj.hasProperty('value'.toJS).toDart) {
                                         targetObj.setProperty('value'.toJS, ''.toJS);
                                       }
@@ -1188,7 +1227,14 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                                       'mimeType': 'application/pdf',
                                       'uploadedAt': DateTime.now().millisecondsSinceEpoch,
                                       'dataUrl': dataUrl,
-                                    }).catchError((_) {});
+                                    }).catchError((Object e) {
+                                    if (!mounted) return;
+                                    setState(() {
+                                      _uploadedFileName = null;
+                                      _customTerms = '';
+                                      _error = 'Could not save the lease PDF, so it was not attached. Please try again.';
+                                    });
+                                  });
 
                                     setState(() {
                                       _error = null;
@@ -1223,7 +1269,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                     [Component.text(_error!)],
                   ),
                 div(classes: 'flex items-center justify-between w-full', [
-                  if (_step > 1)
+                  if (_multiStep && _step > 1)
                     button(
                       classes:
                           'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
@@ -1239,7 +1285,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                   else
                     div([]),
 
-                  if (_step < 3)
+                  if (_multiStep && _step < 3)
                     button(
                       classes:
                           'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
@@ -1250,7 +1296,7 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                     button(
                       classes:
                           'px-8 py-2 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
-                      events: {'click': (e) => _submit()},
+                      events: {'click': (e) => _publish()},
                       disabled: _isSubmitting,
                       [
                         if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),

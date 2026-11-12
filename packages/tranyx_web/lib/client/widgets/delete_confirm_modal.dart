@@ -15,11 +15,11 @@ class DeleteConfirmModalComponent extends StatelessComponent {
     final budget = (s.selectedJobData?['pricingValue'] as num?)?.toDouble() ?? 0.0;
 
     return div(
-      classes: 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
+      classes: 'rw-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in',
       [
         div(
           classes:
-              'w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
+              'rw-wizard w-full max-w-md rounded-3xl border p-6 relative overflow-hidden transition-all duration-300 '
               '${isDark ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-800 shadow-2xl"}',
           [
             // Close button

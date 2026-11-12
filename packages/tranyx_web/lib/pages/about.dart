@@ -1,51 +1,43 @@
-import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 
-// By using the @client annotation this component will be automatically compiled to javascript and mounted
-// on the client. Therefore:
-// - this file and any imported file must be compilable for both server and client environments.
-// - this component and any child components will be built once on the server during pre-rendering and then
-//   again on the client during normal rendering.
+import '../client/widgets/legal_shell.dart';
+
 @client
 class About extends StatelessComponent {
   const About({super.key});
 
   @override
   Component build(BuildContext context) {
-    return const section([
-      ol([
-        li([
-          h3([.text('📖 Documentation')]),
-          .text('Jaspr\'s '),
-          a(href: 'https://docs.jaspr.site', [.text('official documentation')]),
-          .text(' provides you with all information you need to get started.'),
-        ]),
-        li([
-          h3([.text('💬 Community')]),
-          .text('Got stuck? Ask your question on the official '),
-          a(href: 'https://discord.gg/XGXrGEk4c6', [.text('Discord server')]),
-          .text(' for the Jaspr community.'),
-        ]),
-        li([
-          h3([.text('📦 Ecosystem')]),
-          .text(
-            'Get official packages and integrations for your project like jaspr_router, jaspr_tailwind or jaspr_riverpod. Find packages built for Jaspr on pub.dev using the ',
-          ),
-          a(href: 'https://pub.dev/packages?q=topic%3Ajaspr', [.text('#jaspr')]),
-          .text(' topic, or publish your own.'),
-        ]),
-        li([
-          h3([.text('💙 Support Jaspr')]),
-          .text('If you like Jaspr, consider starring us on '),
-          a(href: 'https://github.com/schultek/jaspr', [.text('Github')]),
-          .text(' and tell your friends.'),
-        ]),
-      ]),
-    ]);
+    return LegalShell(
+      tab: LegalTab.about,
+      title: 'About Tranyx',
+      intro:
+          'One Platform. Endless Opportunities. Find freelance gigs, rent vehicles and properties, and earn securely on the all-in-one P2P platform. Powered by Web3 escrow and verified Nyxians in the Philippines.',
+      sections: const [
+        LegalSectionData(
+          id: 'about-1',
+          title: 'What we offer',
+          bullets: [
+            'Freelance gigs near you — match with local work as a verified Nyxian.',
+            'Vehicle & space rentals — list or book vehicles and properties peer-to-peer.',
+            'Escrow-protected payments — settle securely with Web3 escrow and Tyxbit balances.',
+          ],
+        ),
+        LegalSectionData(
+          id: 'about-2',
+          title: 'Built for the Philippines',
+          paragraphs: [
+            'Tranyx is designed for Nyxians and employers across the Philippines — combining gig work, rentals, and escrow in one marketplace.',
+          ],
+        ),
+        LegalSectionData(
+          id: 'about-3',
+          title: 'Contact',
+          paragraphs: [
+            'Questions about the platform? Email support@tranyx.app. For Privacy and Terms, use the tabs above.',
+          ],
+        ),
+      ],
+    );
   }
-
-  @css
-  static List<StyleRule> get styles => [
-    css('ol').styles(maxWidth: 500.px),
-  ];
 }

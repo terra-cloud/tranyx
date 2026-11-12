@@ -5,9 +5,10 @@
     // Properties Collection (Anti-Exploitation: Host CANNOT alter pricing/rules once booked)
     match /properties/{propertyId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Property Owner): Can update property details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -24,7 +25,7 @@
             'securityDepositAmount', 'advanceAmount', 'depositType',
             'depositValue', 'securityDepositPolicy',
             // Location & specs
-            'address', 'location', 'landmark', 'lat', 'lng', 'latitude', 'longitude',
+            'addressPublic',
             'bedrooms', 'bathrooms', 'maxGuests', 'sqft', 'furnishing',
             'amenities', 'houseRules',
             // Photos & legal terms
@@ -86,7 +87,15 @@
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' &&
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
@@ -103,8 +112,11 @@
 
     // Property Requests Collection
     match /property_requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      // Same party rule as rental_requests. Public listing docs stay on /properties.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      // Created / deleted only by the bookingRequest callable (Admin SDK) or staff. See requestPartyUpdateOk (20_workspace_rentals).
+      allow create, delete: if isAdminOrStaff();
+      allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/property_escrows/$(requestId))) || isAdminOrStaff();
     }
 
     // Property Escrows Collection (Dual-field support for renteeId & renterId)
@@ -114,11 +126,10 @@
         isRentalEscrowParty(resource.data) || 
         isAdminOrStaff()
       );
-      allow create, update: if isActiveUser() && (
-        isRentalEscrowParty(request.resource.data) || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+      // Phase 4: escrow docs hold real money. Only the bookingRequest / bookingAction / rentalExtension
+      // callables (Admin SDK) write them; clients and parties can only read.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Property History Collection
