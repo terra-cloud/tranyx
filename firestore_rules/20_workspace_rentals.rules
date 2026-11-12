@@ -24,9 +24,10 @@
     // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
     match /rentals/{rentalId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid && isValidVehiclePricing(request.resource.data);
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        isValidVehiclePricing(request.resource.data) && !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Vehicle Owner): Can update vehicle/price details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -50,7 +51,7 @@
             'vehicleValue', 'securityDeposit', 'depositType', 'depositValue',
             'securityDepositPolicy',
             // Location & compliance
-            'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+            'addressPublic',
             'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber',
             'franchisePermit', 'gpsTrackerId',
             // Photos & legal terms
@@ -112,12 +113,22 @@
           (('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) ||
            ('renterId' in resource.data && resource.data.renterId == request.auth.uid)) && 
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'currentLocationLat', 'currentLocationLng', 'fuelLevel', 
+            'status', 'fuelLevel', 
             'odoMeter', 'dropoffPhotos', 'renteeRated', 'endDate', 'totalCost'
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
+        );
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
@@ -133,9 +144,42 @@
     }
 
     // Rental Requests Collection
+    // Booking request guard (rental_requests / property_requests). The bookingRequest callable creates these docs
+    // (Admin SDK) and bookingAction settles the money from the escrow doc, but it also reads this doc's `status`.
+    // A party who could write any status could therefore park a funded booking in a closed state and block the refund
+    // or payout. Clients may only: be a party; leave the identity / money fields alone; do the legitimate
+    // transitions (host Pending->Approved, renter ->Booked once approved); and write a closing status
+    // (Rejected / Cancelled / Completed / Refunded) only while NO escrow is held (legacy no-escrow requests).
+    // Writes that leave `status` unchanged (e.g. echoing what the callable just set) stay allowed.
+    function requestPartyUpdateOk(escrowPath) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let uid = request.auth.uid;
+      let isHost = before.get('hostId', '') == uid;
+      let isRentee = before.get('renteeId', '') == uid || before.get('renterId', '') == uid;
+      let closing = ['Rejected', 'Cancelled', 'Completed', 'Refunded'];
+      let escrowHeld = exists(escrowPath) && get(escrowPath).data.get('status', '') == 'Held';
+      return (isHost || isRentee)
+        && !changed.hasAny(['renteeId', 'renterId', 'hostId', 'bookingFee', 'discountAmount', 'promoCode',
+                            'securityDepositAmount', 'baseRentAmount', 'hostCommissionRate', 'customerPlatformFeeAmount',
+                            'customerPlatformFeeRate', 'totalCustomerPaid', 'escrowStatus', 'refundAmount', 'createdAt'])
+        && (!changed.hasAny(['status']) || (
+          (after.status == 'Approved' && isHost && before.status == 'Pending') ||
+          (after.status == 'Booked' && isRentee && before.status in ['Approved', 'Awaiting Signature']) ||
+          (after.status in closing && !escrowHeld && !(before.status in closing)) ||
+          (!(after.status in closing) && !(after.status in ['Pending', 'Approved', 'Booked']) && !(before.status in closing))
+        ));
+    }
+
     match /rental_requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      // Participants (host, renter, or the rentee/renterId/uid aliases) and claim staff only.
+      // A rentalId-only list is not a party constraint, so strangers cannot read a listing's requests.
+      // Public listing docs stay on /rentals. Collection-group queries have no separate allow.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      // Created / deleted only by the bookingRequest callable (Admin SDK) or staff.
+      allow create, delete: if isAdminOrStaff();
+      allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/rental_escrows/$(requestId))) || isAdminOrStaff();
     }
 
     // Rental Extensions Collection
@@ -157,11 +201,10 @@
         isRentalEscrowParty(resource.data) || 
         isAdminOrStaff()
       );
-      allow create, update: if isActiveUser() && (
-        isRentalEscrowParty(request.resource.data) || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+      // Phase 4: escrow docs hold real money. Only the bookingRequest / bookingAction / rentalExtension
+      // callables (Admin SDK) write them; clients and parties can only read.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Rental Extension Escrows Collection
@@ -171,11 +214,10 @@
         isRentalEscrowParty(resource.data) || 
         isAdminOrStaff()
       );
-      allow create, update: if isActiveUser() && (
-        isRentalEscrowParty(request.resource.data) || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+      // Phase 4: escrow docs hold real money. Only the bookingRequest / bookingAction / rentalExtension
+      // callables (Admin SDK) write them; clients and parties can only read.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Rental Contracts Collection (Permanent immutable contract snapshots)

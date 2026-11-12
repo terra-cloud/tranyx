@@ -48,21 +48,35 @@ service cloud.firestore {
       return isAuthenticated() && !isUserBlocked(request.auth.uid);
     }
 
+    // Exact listing address and coordinates. Guests may read the public listing, never these fields.
+    // The public document keeps addressPublic = "Brgy. *****, ****". The exact values live in
+    // {collection}/{id}/private/location, readable only by a signed-in user.
+    function hasExactListingLocation(data) {
+      return data.keys().hasAny([
+        'address', 'landmark', 'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+        'destinationAddress', 'destinationLat', 'destinationLng',
+        'latitude', 'longitude', 'lat', 'lng',
+        'nyxianLat', 'nyxianLng', 'currentLocationLat', 'currentLocationLng',
+        'trackingLat', 'trackingLng', 'routeHistory'
+      ]);
+    }
+    function listingUpdateTouchesExactLocation() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'address', 'landmark', 'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+        'destinationAddress', 'destinationLat', 'destinationLng',
+        'latitude', 'longitude', 'lat', 'lng',
+        'nyxianLat', 'nyxianLng', 'currentLocationLat', 'currentLocationLng',
+        'trackingLat', 'trackingLng'
+      ]);
+    }
+
 // >>> SOURCE: firestore_rules/02_admin_helpers.rules
     // ------------------------------------------------------------------------
     // ADMINISTRATIVE & STAFF AUTHORIZATION HELPERS
     // ------------------------------------------------------------------------
 
-    // Helper to check if the user has an official staff/admin email domain
-    function isStaffEmail() {
-      return isAuthenticated() && request.auth.token.email != null && (
-        request.auth.token.email.matches('.*\\.(agents|agent|admin|staff)@tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(admin|staff|agents|agent)\\.tranyx\\.(app|com|ph)$') ||
-        request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.ph|tranyx\\.com|terra\\.app|tranyx\\.dev)$')
-      );
-    }
-
-    // Step 1: Zero-read instant verification via Auth Token Claims & Verified Staff Email
+    // Step 1: Zero-read instant verification via Auth Token Claims only. A staff-domain email alone grants
+    // nothing (KAN-144): admin/staff access needs a custom claim set server-side.
     function isAdminTokenOrEmail() {
       return isAuthenticated() && (
         (request.auth.token != null && (
@@ -74,10 +88,7 @@ service cloud.firestore {
               'ADMIN', 'STAFF', 'AGENT', 'SUPER_ADMIN'
             ]
           ))
-        )) ||
-        (request.auth.token.email != null &&
-         request.auth.token.email_verified == true &&
-         request.auth.token.email.matches('.*@(tranyx\\.app|tranyx\\.com|tranyx\\.ph|terra\\.app|tranyx\\.dev)$'))
+        ))
       );
     }
 
@@ -99,7 +110,9 @@ service cloud.firestore {
 
     // Step 3: Lazy check on /p2p_agents/{uid} document
     function isP2pAgentInDoc() {
-      return exists(/databases/$(database)/documents/p2p_agents/$(request.auth.uid));
+      // Deactivated agents (isActive:false) lose desk access (KAN-136-B5).
+      let path = /databases/$(database)/documents/p2p_agents/$(request.auth.uid);
+      return exists(path) && get(path).data.get('isActive', false) == true;
     }
 
     // Helper to check if the user is an admin, staff member, or registered P2P agent
@@ -107,45 +120,253 @@ service cloud.firestore {
       return isAdminTokenOrEmail() || (isAuthenticated() && (isUserAdminInDoc() || isP2pAgentInDoc()));
     }
 
+    // Server-issued admin custom claim only. role=agent/staff, a users-doc flag, or an active
+    // p2p_agents doc must not grant or edit privilege / paid-entitlement fields.
+    function isClaimAdmin() {
+      return isAuthenticated() && request.auth.token != null && (
+        ('admin' in request.auth.token && request.auth.token.admin == true) ||
+        ('superadmin' in request.auth.token && request.auth.token.superadmin == true) ||
+        ('role' in request.auth.token && request.auth.token.role in [
+          'admin', 'super_admin', 'superadmin', 'ADMIN', 'SUPER_ADMIN', 'SUPERADMIN'
+        ])
+      );
+    }
+
+    // Custom-claim staff/agent/admin. A users doc or an active p2p_agents doc is not this.
+    function isClaimStaff() {
+      return isAdminTokenOrEmail();
+    }
+
+    // Booking request party. renterId is the escrow alias of renteeId; uid/userId are older request shapes.
+    function isBookingRequestParty(data) {
+      return isAuthenticated() && (
+        data.get('hostId', '') == request.auth.uid ||
+        data.get('renteeId', '') == request.auth.uid ||
+        data.get('renterId', '') == request.auth.uid ||
+        data.get('uid', '') == request.auth.uid ||
+        data.get('userId', '') == request.auth.uid
+      );
+    }
+
+    // Claim-admin metadata touch only. Amount, status, and party fields stay on the money callables.
+    function clientEscrowUpdateOk() {
+      return isClaimAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'amount', 'status', 'employerFees', 'totalEscrowed', 'refundAmount', 'price', 'payout',
+        'releasedAmount', 'releasedTo', 'refundedTo', 'employerId', 'creatorId', 'workerId',
+        'nyxianId', 'hostId', 'renteeId', 'renterId', 'totalPaid', 'holdbackAmount'
+      ]);
+    }
+
 // >>> SOURCE: firestore_rules/10_workspace_users_wallets.rules
     // ------------------------------------------------------------------------
     // WORKSPACE: USERS, WALLETS, TRANSACTIONS & FINANCES
     // ------------------------------------------------------------------------
 
+    // Money record owner: the doc's uid or userId field is the caller.
+    function ownsRecord(data) {
+      return isAuthenticated() && (data.get('uid', '') == request.auth.uid || data.get('userId', '') == request.auth.uid);
+    }
+
+    // Withdrawal status changes are callables only. Owner cancel/confirm: updateP2pWithdrawal
+    // (no staff claim). Staff claim/release/reject/proof: staffOps. A client update cannot
+    // settle, refund, or attach proof.
+
+    // Job-derived global transaction ids (tranyx_app.dart completion flow): payout_nyx_<jobId> is the
+    // worker's payout, fees_emp_<jobId> the employer's fees, and either party reads both by id.
+    function isTxJobParticipant(txId) {
+      let jobPath = /databases/$(database)/documents/jobs/$(txId.replace('^(payout_nyx|fees_emp)_', ''));
+      return txId.matches('^(payout_nyx|fees_emp)_.+') && exists(jobPath) &&
+        (get(jobPath).data.creatorId == request.auth.uid || get(jobPath).data.get('acceptedApplicantId', null) == request.auth.uid);
+    }
+
+    // Structured global transaction ids name the record they belong to, so their uid must be that
+    // record's party (app writers: job completion payout_nyx_ = hired worker, fees_emp_ = employer;
+    // cancel/delete refund_job_ / refund_stale_job_ = employer; deletePropertyRental refund_prop_ =
+    // host; P2P p2p_dep_ / p2p_with_ = owner of the deposit / withdrawal request written just before).
+    function isTxIdParty(txId, uid) {
+      let jobPath = /databases/$(database)/documents/jobs/$(txId.replace('^(payout_nyx|fees_emp|refund_job|refund_stale_job)_', ''));
+      let propPath = /databases/$(database)/documents/properties/$(txId.replace('^refund_prop_', ''));
+      let depPath = /databases/$(database)/documents/deposit_requests/$(txId.replace('^p2p_dep_', ''));
+      let wrPath = /databases/$(database)/documents/withdrawal_requests/$(txId.replace('^p2p_with_', ''));
+      return
+        (txId.matches('^payout_nyx_.+') && exists(jobPath) && get(jobPath).data.get('acceptedApplicantId', null) == uid) ||
+        (txId.matches('^(fees_emp|refund_job|refund_stale_job)_.+') && exists(jobPath) && get(jobPath).data.creatorId == uid) ||
+        (txId.matches('^refund_prop_.+') && exists(propPath) && get(propPath).data.hostId == uid) ||
+        (txId.matches('^p2p_dep_.+') && exists(depPath) && get(depPath).data.get('uid', '') == uid) ||
+        (txId.matches('^p2p_with_.+') && exists(wrPath) && get(wrPath).data.get('uid', '') == uid);
+    }
+
+    // pending_onchain_<uid>_<signature>: the bookkeeping record of an in-flight on-chain payment. The
+    // uid in the id must be the caller's, so nobody can squat another account's pending record.
+    function isOwnPendingOnchainId(txId, uid) {
+      let prefix = 'pending_onchain_' + uid + '_';
+      return txId.size() > prefix.size() && txId[0:prefix.size()] == prefix;
+    }
+
+    // deposit_sol_ / deposit_usdt_ / sub_sol_ / onchain_ + <signature> are the on-chain credit records and the
+    // one-per-signature marker. They are written by the creditOnchainPayment Cloud Function (Admin SDK) only;
+    // clients and owners can neither create nor edit them (see transactions rules below).
+
+    // Owner-side premium fields can only move DOWN (expiry downgrade), never up. Granting premium is the
+    // job of the creditOnchainPayment / subscribeWithBalance Cloud Functions or staff.
+    function ownerPremiumNotRaised() {
+      let n = request.resource.data;
+      let o = resource.data;
+      return (n.get('isPremium', false) == o.get('isPremium', false) || n.get('isPremium', false) == false) &&
+        (n.get('premiumUntil', null) == o.get('premiumUntil', null) || n.get('premiumUntil', null) == null ||
+          (n.get('premiumUntil', null) is number && o.get('premiumUntil', null) is number &&
+            n.get('premiumUntil', null) <= o.get('premiumUntil', null))) &&
+        (n.get('accountType', '') == o.get('accountType', '') || n.get('accountType', '') != 'hybrid');
+    }
+
+    // KAN-136 stopgap (until KAN-126 Cloud Function ledger): hired worker may create
+    // payout_nyx_<jobId> type=payout with amount bound to the job price. fees_emp_ /
+    // platform_fees / employer-driven completion stay Function-only (P1/P2).
+    function jobCompletionRatesOk(jobId, d) {
+      let job = get(/databases/$(database)/documents/jobs/$(jobId)).data;
+      let cfgPath = /databases/$(database)/documents/config/app_config;
+      let cfg = exists(cfgPath) ? get(cfgPath).data : {};
+      let commission = job.get('commissionRate', cfg.get('commissionRate', 0.03));
+      let holdback = job.get('holdbackRate', cfg.get('holdbackRate', 0.10));
+      return d.get('commissionRate', commission) == commission &&
+        d.get('holdbackRate', holdback) == holdback;
+    }
+    // Payout create: if the worker user doc is credited in the same batch, the bump cannot exceed amount.
+    function payoutCreditCapped(d) {
+      let uPath = /databases/$(database)/documents/users/$(d.uid);
+      return !exists(uPath) ||
+        (getAfter(uPath).data.get('tyxBalance', 0) - get(uPath).data.get('tyxBalance', 0) <= d.amount + 0.0001);
+    }
+    // Amount bound to job price (KAN-136-D2): > 0 and <= pricingValue (holdback may lower the immediate payout).
+    function payoutAmountBoundToJob(jobId, d) {
+      let price = get(/databases/$(database)/documents/jobs/$(jobId)).data.get('pricingValue', 0);
+      return price is number && price > 0 &&
+        d.amount is number && d.amount > 0 && d.amount <= price &&
+        d.get('baseAmount', price) == price;
+    }
+    function isJobCompletionTxCreate(txId) {
+      let d = request.resource.data;
+      let jobId = txId.replace('^payout_nyx_', '');
+      let jobPath = /databases/$(database)/documents/jobs/$(jobId);
+      return isActiveUser() &&
+        txId.matches('^payout_nyx_.+') &&
+        exists(jobPath) &&
+        d.type == 'payout' &&
+        d.uid == request.auth.uid &&
+        get(jobPath).data.get('acceptedApplicantId', null) == request.auth.uid &&
+        d.keys().hasAll(['uid', 'amount', 'status', 'type', 'createdAt']) &&
+        d.status == 'Successful' &&
+        payoutAmountBoundToJob(jobId, d) &&
+        jobCompletionRatesOk(jobId, d) &&
+        payoutCreditCapped(d);
+    }
+
+    // Case-insensitive payout / rebate / fee_deduction / withdraw spellings are not a client create.
+    // 'payment' and 'fee' stay allowed on ordinary ids: existing clients use them as non-payout labels.
+    // payout_nyx_ itself is excluded from that ordinary path (see transactions create).
+    function clientLedgerTypeBlocked() {
+      return request.resource.data.get('type', '') is string &&
+        request.resource.data.get('type', '').lower().matches('(?i)^(payout|payouts|rebate|rebates|fee_deduction|withdraw|withdrawal)$');
+    }
+    function clientLedgerTypeIntroduced() {
+      return clientLedgerTypeBlocked() &&
+        (resource == null || resource.data.get('type', null) != request.resource.data.type);
+    }
+
+    // Public card copied from the owner's users doc. Trust stats must equal that doc so the
+    // owner cannot publish a higher rating or a premium flag the account does not have.
+    function publicProfileShape(userId) {
+      return request.resource.data.keys().hasOnly([
+        'uid', 'name', 'displayName', 'photoUrl', 'profile_photo', 'headline', 'about',
+        'accountType', 'skills', 'hourlyRate', 'businessName', 'industry',
+        'createdAt', 'updatedAt', 'rating', 'ratingCount', 'isPremium'
+      ]) && request.resource.data.uid == userId;
+    }
+    function publicCopiedField(userId, field) {
+      let userPath = /databases/$(database)/documents/users/$(userId);
+      return !(field in request.resource.data) ||
+        (exists(userPath) && request.resource.data.get(field, null) == get(userPath).data.get(field, null));
+    }
+    function publicProfileWriteOk(userId) {
+      return isActiveUser() && isOwner(userId) && publicProfileShape(userId) &&
+        publicCopiedField(userId, 'rating') &&
+        publicCopiedField(userId, 'ratingCount') &&
+        publicCopiedField(userId, 'isPremium') &&
+        publicCopiedField(userId, 'accountType');
+    }
+
     // Users Collection (Strict segregation of User vs Admin fields)
     match /users/{userId} {
-      allow read: if true; // Publicly readable profiles (ratings/reviews)
+      // Private account. Email, phone, wallet, balances, KYC flags, and idVerified stay here.
+      // Other people read public_profiles/{uid}. Claim staff still read the private doc.
+      allow get: if isOwner(userId) || isClaimStaff();
+      allow list: if isClaimStaff();
       
-      // Regular users can create their profile without privileged fields.
-      // Verified staff emails or admins can bootstrap administrative roles.
+      // Regular users can create their profile without privileged fields (KAN-144: no role/staff/admin
+      // flags and a zero starting balance; signup writes UserProfile.toMap(), which never sets them).
+      // Staff (admin claim, or verified staff-domain email via isAdminOrStaff) can bootstrap administrative roles.
       allow create: if (
-        (isOwner(userId) && !request.resource.data.keys().hasAny(['role', 'banned', 'suspendedUntil'])) ||
-        (isOwner(userId) && isStaffEmail()) ||
-        isAdminOrStaff()
+        (isOwner(userId) &&
+          !request.resource.data.keys().hasAny([
+            'role', 'banned', 'suspendedUntil', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'
+          ]) &&
+          request.resource.data.get('tyxBalance', 0) == 0 &&
+          request.resource.data.get('reservedBalance', 0) == 0 &&
+          request.resource.data.get('isPremium', false) == false &&
+          request.resource.data.get('premiumUntil', null) == null &&
+          request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          request.resource.data.get('terraPoints', 0) == 0 &&
+          !request.resource.data.keys().hasAny([
+            'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
+            'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
+          ])) ||
+        // Claim-admins may bootstrap a profile (including role flags) but never mint a balance.
+        // Every other staff/agent path may create a zero-balance profile only with no privilege or paid-entitlement fields.
+        (isClaimAdmin() &&
+          request.resource.data.get('tyxBalance', 0) == 0 && request.resource.data.get('reservedBalance', 0) == 0) ||
+        (isAdminOrStaff() &&
+          request.resource.data.get('tyxBalance', 0) == 0 && request.resource.data.get('reservedBalance', 0) == 0 &&
+          !request.resource.data.keys().hasAny(['role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent']) &&
+          request.resource.data.get('isPremium', false) == false &&
+          request.resource.data.get('premiumUntil', null) == null &&
+          request.resource.data.get('accountType', 'nyxian') != 'hybrid' &&
+          request.resource.data.get('terraPoints', 0) == 0 &&
+          !request.resource.data.keys().hasAny([
+            'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
+            'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus'
+          ]))
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
       allow update: if (
         // 1. Regular User: Can update own profile fields (cannot alter admin role, ban, or suspension status)
         (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil'
-        ]))
+          'role', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent', 'banned', 'suspendedUntil', 'rating', 'ratingCount',
+          'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount',
+          'subscriptionTxId', 'subscriptionStatus',
+          // Money (server-only): tyxBalance / reservedBalance move only through Cloud Functions or staff.
+          'tyxBalance', 'reservedBalance', 'terraPoints'
+        ]) && ownerPremiumNotRaised())
         || 
-        // 2. Staff Bootstrap: User with official staff email domain can bootstrap staff role
-        (isOwner(userId) && isStaffEmail())
+        // 2a. Admin custom claim: moderation, privilege, and entitlement fields. NOT the balance.
+        (isClaimAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tyxBalance', 'reservedBalance']))
         ||
-        // 3. Admin / Staff: Can update admin, moderation & verification fields
-        isAdminOrStaff()
-        ||
-        // 4. Subscription verification & activation updates
-        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'isPremium', 'premiumUntil', 'accountType', 'subscriptionPlan', 
-          'subscriptionStartedAt', 'subscriptionPaymentMethod', 'subscriptionPaymentAmount', 
-          'subscriptionTxId', 'subscriptionStatus', 'pendingSubscription', 
-          'lastSubscriptionRejection', 'updatedAt'
+        // 2b. Other staff / P2P agents: moderation only. Privilege flags and paid entitlement stay claim-admin
+        //     (or Admin SDK). Balances move only through the staffOps callable.
+        (isAdminOrStaff() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'tyxBalance', 'reservedBalance',
+          'role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent',
+          'isPremium', 'premiumUntil', 'accountType',
+          'subscriptionPlan', 'subscriptionStartedAt', 'subscriptionPaymentMethod',
+          'subscriptionPaymentAmount', 'subscriptionTxId', 'subscriptionStatus', 'terraPoints'
         ]))
         ||
-        // 5. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
+        // 3. Owner's pending subscription request bookkeeping (grants nothing; staff approve it)
+        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'pendingSubscription', 'lastSubscriptionRejection', 'updatedAt'
+        ]))
+        ||
+        // 4. Inactive gig reclaim: Allow incrementing worker's abandonedJobs metric
         (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['abandonedJobs']) &&
           request.resource.data.abandonedJobs is number &&
           (!('abandonedJobs' in resource.data) || request.resource.data.abandonedJobs == resource.data.abandonedJobs + 1)
@@ -155,26 +376,41 @@ service cloud.firestore {
 
       allow delete: if isAdminOrStaff();
       
-      // User Reviews subcollection
+      // Legacy user reviews subcollection: read-only for clients. New ratings go to /ratings (KAN-145).
       match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isActiveUser() && request.resource.data.authorId == request.auth.uid;
-      }
-
-      // User Ledger subcollection
-      match /ledger/{ledgerId} {
-        allow read, write: if isOwner(userId) || isAdminOrStaff();
-      }
-
-      // User Transactions subcollection
-      match /transactions/{txId} {
-        allow read, write: if isOwner(userId) || isAdminOrStaff();
+        allow write: if isAdminOrStaff();
       }
 
       // User Points subcollection
       match /points/{docId} {
-        allow read, write: if isOwner(userId) || isAdminOrStaff();
+        allow read: if isOwner(userId) || isClaimStaff();
+        allow write: if isClaimAdmin();
       }
+
+      // Overlapping ledgers: an owner must not create a payout/fee/withdrawal row here either.
+      match /ledger/{ledgerId} {
+        allow read: if isOwner(userId) || isAdminOrStaff();
+        allow create: if (isOwner(userId) || isAdminOrStaff()) && !clientLedgerTypeBlocked();
+        allow update: if (isOwner(userId) || isAdminOrStaff()) && !clientLedgerTypeIntroduced();
+        allow delete: if isOwner(userId) || isAdminOrStaff();
+      }
+
+      match /transactions/{txId} {
+        allow read: if isOwner(userId) || isAdminOrStaff();
+        allow create: if (isOwner(userId) || isAdminOrStaff()) && !clientLedgerTypeBlocked();
+        allow update: if (isOwner(userId) || isAdminOrStaff()) && !clientLedgerTypeIntroduced();
+        allow delete: if isOwner(userId) || isAdminOrStaff();
+      }
+    }
+
+    // Sanitized counterparty card. No email, phone, wallet, balance, KYC, or verification flags.
+    // idVerified is not copied: it is owner-writable and is not a trust signal.
+    match /public_profiles/{userId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if publicProfileWriteOk(userId);
+      allow delete: if false;
     }
 
     // Wallets Collection (Unified wallet storage & user ledger sub-collections)
@@ -185,106 +421,193 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow write: if (isOwner(walletId) || isAdminOrStaff()) &&
-        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0));
+      // Paid entitlement on the wallet doc is claim-admin / Admin SDK only. Agents and owners cannot grant it
+      // on create or update; agents cannot delete another user's wallet to recreate it privileged.
+      allow create: if (isOwner(walletId) || isAdminOrStaff()) &&
+        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0)) &&
+        (
+          isClaimAdmin() ||
+          (
+            request.resource.data.get('isPremium', false) == false &&
+            request.resource.data.get('premiumUntil', null) == null &&
+            request.resource.data.get('accountType', '') != 'hybrid' &&
+            !request.resource.data.keys().hasAny(['role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'])
+          )
+        );
+      allow update: if (isOwner(walletId) || isAdminOrStaff()) &&
+        (!('balance' in request.resource.data) || (request.resource.data.balance is number && request.resource.data.balance >= 0)) &&
+        (
+          isClaimAdmin() ||
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'isPremium', 'premiumUntil', 'accountType', 'role', 'admin', 'isAdmin', 'isStaff', 'isSuperAdmin', 'isP2pAgent'
+          ])
+        );
+      allow delete: if isOwner(walletId) || isClaimAdmin();
 
       match /transactions/{txId} {
-        allow read, write: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
-        allow delete: if isAdminOrStaff();
+        allow read: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow create: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff()) && !clientLedgerTypeBlocked();
+        allow update: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff()) && !clientLedgerTypeIntroduced();
+        allow delete: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
       }
 
       match /ledger/{entryDoc} {
-        allow read, write: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
-        allow delete: if isAdminOrStaff();
+        allow read: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
+        allow create: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff()) && !clientLedgerTypeBlocked();
+        allow update: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff()) && !clientLedgerTypeIntroduced();
+        allow delete: if isAuthenticated() && (walletId == request.auth.uid || isAdminOrStaff());
       }
     }
 
-    // Wallet Links Collection
+    // Wallet Links Collection: wallet address -> uid, one wallet per account. Wallet sign-in was
+    // removed (KAN-124), so nothing reads this before sign-in. Get stays open to signed-in users for
+    // the "already linked to another account" check; the same mapping is public on
+    // users/{uid}.walletPublicKey. Docs hold uid + linkedAt only (no tokens or passwords), and only
+    // the linked owner can re-write or delete one.
     match /walletLinks/{walletPublicKey} {
-      allow read: if true;
-      allow write: if isActiveUser() && request.resource.data.uid == request.auth.uid;
+      allow get: if isAuthenticated();
+      allow list: if isAdminOrStaff();
+      allow create: if isActiveUser() && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['uid', 'linkedAt']);
+      allow update: if isActiveUser() && resource.data.uid == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid && request.resource.data.keys().hasOnly(['uid', 'linkedAt']);
+      allow delete: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid);
     }
 
     // Global Transactions Collection
     match /transactions/{txId} {
-      allow read: if true;
-      allow create: if isAdminOrStaff() || (isActiveUser() && request.resource.data.uid == request.auth.uid && !request.resource.data.type.matches('^(payout|rebate|fee_deduction)$'));
-      allow update: if isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid) || (isAuthenticated() && (resource.data.type == 'subscription' || resource.data.kind == 'subscription'));
+      // get: owner, a participant of the job a payout_nyx_/fees_emp_ id names (only while the doc's
+      // uid is still that job's worker/employer, so re-creating a deleted job id grants nothing), or
+      // admin/agent. An id that doesn't exist yet is readable by any signed-in user (existence only):
+      // the app's idempotency checks (existingTx, txNyxDoc/txEmpDoc, p2p_* lookups) read before writing.
+      // Missing payout_nyx_/fees_emp_/refund_prop_ ids only by that job's participants / the host, so
+      // denied-vs-missing can't be used to probe someone else's records.
+      // list: owner only (getMyTransactions filters uid == caller).
+      // onchain_<signature> / deposit_sol_ / deposit_usdt_ / sub_sol_ records are written and checked by the
+      // creditOnchainPayment function; clients only read their own.
+      allow get: if isAuthenticated() &&
+        ((resource == null && (!txId.matches('^(payout_nyx|fees_emp|refund_prop)_.*') ||
+            isTxJobParticipant(txId) || isTxIdParty(txId, request.auth.uid))) ||
+          (resource != null && ownsRecord(resource.data)) ||
+          (isTxJobParticipant(txId) && isTxIdParty(txId, resource.data.get('uid', ''))) || isAdminOrStaff());
+      allow list: if isAdminOrStaff() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      // create: payout_nyx_ and on-chain credit markers are Admin SDK only
+      // (jobAction complete, creditOnchainPayment). Staff and worker clients cannot write them.
+      // Party refund_ / fees_emp_ / p2p_ creates stay. Staff may still create a non-marker row.
+      allow create: if !clientLedgerTypeBlocked() &&
+        !txId.matches('^(payout_nyx|deposit_sol|deposit_usdt|sub_sol|onchain)_.*') &&
+        (
+          (isAdminOrStaff() && !txId.matches('^(fees_emp|refund_job|refund_stale_job|refund_prop)_.*')) ||
+          (isActiveUser() && request.resource.data.uid == request.auth.uid &&
+            (!txId.matches('^(fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)) &&
+            (!txId.matches('^pending_onchain_.*') || isOwnPendingOnchainId(txId, request.auth.uid)))
+        );
+      // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
+      // On-chain credit records (deposit_<sig> / sub_sol_<sig>) and the shared one-per-signature marker
+      // (onchain_<sig>) are Admin SDK / staff only (create and update): the credit happens in the function.
+      // Staff clients cannot rewrite payout rows or on-chain credit markers. Other staff updates stay.
+      allow update: if !clientLedgerTypeIntroduced() &&
+        !txId.matches('^(payout_nyx|fees_emp|deposit_sol|deposit_usdt|sub_sol|onchain)_.*') &&
+        (isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
+        !txId.matches('^(refund_job|refund_stale_job|refund_prop|p2p|deposit)_.*') &&
+        (!txId.matches('^pending_onchain_.*') ||
+          (isOwnPendingOnchainId(txId, request.auth.uid) && request.resource.data.uid == resource.data.uid))));
       allow delete: if isAdminOrStaff();
     }
 
     // Subscriptions Collection (P2P Hybrid PRO Subscriptions)
     match /subscriptions/{subId} {
-      allow read: if true;
-      allow create: if isAuthenticated();
-      allow update: if isAdminOrStaff() || isAuthenticated();
+      allow read: if isAdminOrStaff() || ownsRecord(resource.data);
+      allow create: if isAdminOrStaff() || (isAuthenticated() && request.resource.data.uid == request.auth.uid);
+      allow update: if isAdminOrStaff();
       allow delete: if isAdminOrStaff();
     }
 
     // Deposit Requests Collections (Dual-collection sync: deposit_requests & depositRequests)
+    // Approval (status APPROVED) and the amount are staffOps only. Owners can still file proof.
+    function depositClientUpdateOk() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return request.resource.data.get('status', '') != 'APPROVED'
+        && !changed.hasAny(['amount', 'uid', 'userId'])
+        && (ownsRecord(resource.data) || isClaimStaff());
+    }
+
     match /deposit_requests/{reqId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow delete: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isClaimStaff());
+      allow create: if isAuthenticated() && request.resource.data.get('status', '') != 'APPROVED'
+        && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isClaimStaff());
+      allow update: if depositClientUpdateOk();
+      allow delete: if isClaimAdmin();
     }
 
     match /depositRequests/{requestId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow delete: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isClaimStaff());
+      allow create: if isAuthenticated() && request.resource.data.get('status', '') != 'APPROVED'
+        && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isClaimStaff());
+      allow update: if depositClientUpdateOk();
+      allow delete: if isClaimAdmin();
     }
 
     match /deposits/{depositId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isClaimStaff() || ownsRecord(resource.data);
+      allow write: if false;
     }
 
     // Withdrawal Requests Collections (Dual-collection sync: withdrawal_requests & withdrawalRequests)
+    // KAN-146: requests are created ONLY by the requestWithdrawal Cloud Function (Admin SDK bypasses
+    // rules): it debits the balance, computes fee/net/rate/crypto amount and signs the Solana
+    // transfer server-side. Clients can no longer create a request, so a client-chosen feeAmount: 0,
+    // a forged status or a client-side balance debit for a withdrawal is impossible. Clients still
+    // read their own requests. Status changes are updateP2pWithdrawal / staffOps, not a client write.
     match /withdrawal_requests/{reqId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow delete: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isClaimStaff());
+      allow create: if false;
+      allow update: if false;
+      allow delete: if isClaimAdmin();
     }
 
     match /withdrawalRequests/{requestId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow create: if isAuthenticated() && (request.resource.data.uid == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow update: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isAdminOrStaff());
-      allow delete: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid || isClaimStaff());
+      allow create: if false; // requestWithdrawal callable only
+      allow update: if false;
+      allow delete: if isClaimAdmin();
     }
 
     match /withdrawals/{requestId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isClaimStaff() || ownsRecord(resource.data);
+      allow write: if false;
     }
 
     match /cashout_requests/{requestId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isClaimStaff() || ownsRecord(resource.data);
+      allow write: if false;
     }
 
-    // Deposit References & Claimed References Collections
+    // Reference locks are written by staffOps. Clients do not approve or claim them.
     match /deposit_references/{refKey} {
-      allow read, write: if isAuthenticated();
+      allow read: if isClaimStaff() || ownsRecord(resource.data);
+      allow write: if false;
     }
 
     match /claimed_references/{refKey} {
-      allow read, write: if isAuthenticated();
+      allow read: if isClaimStaff() || ownsRecord(resource.data);
+      allow write: if false;
     }
 
     match /claimed_p2p_references/{refKey} {
-      allow read: if true;
-      allow write: if isAuthenticated() || isAdminOrStaff();
+      allow read: if isClaimStaff() || ownsRecord(resource.data);
+      allow write: if false;
     }
 
     match /claimedReferences/{refKey} {
-      allow read, write: if isAuthenticated();
+      allow read: if isClaimStaff() || ownsRecord(resource.data);
+      allow write: if false;
     }
 
     // Points History Collection
     match /points_history/{historyId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow write: if (isActiveUser() && request.resource.data.uid == request.auth.uid) || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isClaimStaff());
+      allow write: if false;
     }
 
 // >>> SOURCE: firestore_rules/20_workspace_rentals.rules
@@ -314,9 +637,10 @@ service cloud.firestore {
     // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
     match /rentals/{rentalId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid && isValidVehiclePricing(request.resource.data);
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        isValidVehiclePricing(request.resource.data) && !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Vehicle Owner): Can update vehicle/price details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -340,7 +664,7 @@ service cloud.firestore {
             'vehicleValue', 'securityDeposit', 'depositType', 'depositValue',
             'securityDepositPolicy',
             // Location & compliance
-            'location', 'pickupAddress', 'pickupLat', 'pickupLng',
+            'addressPublic',
             'ltoCrNumber', 'ltoOrNumber', 'insuranceProvider', 'insurancePolicyNumber',
             'franchisePermit', 'gpsTrackerId',
             // Photos & legal terms
@@ -402,12 +726,22 @@ service cloud.firestore {
           (('renteeId' in resource.data && resource.data.renteeId == request.auth.uid) ||
            ('renterId' in resource.data && resource.data.renterId == request.auth.uid)) && 
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'currentLocationLat', 'currentLocationLng', 'fuelLevel', 
+            'status', 'fuelLevel', 
             'odoMeter', 'dropoffPhotos', 'renteeRated', 'endDate', 'totalCost'
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
+          get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
+        );
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
@@ -423,9 +757,42 @@ service cloud.firestore {
     }
 
     // Rental Requests Collection
+    // Booking request guard (rental_requests / property_requests). The bookingRequest callable creates these docs
+    // (Admin SDK) and bookingAction settles the money from the escrow doc, but it also reads this doc's `status`.
+    // A party who could write any status could therefore park a funded booking in a closed state and block the refund
+    // or payout. Clients may only: be a party; leave the identity / money fields alone; do the legitimate
+    // transitions (host Pending->Approved, renter ->Booked once approved); and write a closing status
+    // (Rejected / Cancelled / Completed / Refunded) only while NO escrow is held (legacy no-escrow requests).
+    // Writes that leave `status` unchanged (e.g. echoing what the callable just set) stay allowed.
+    function requestPartyUpdateOk(escrowPath) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let uid = request.auth.uid;
+      let isHost = before.get('hostId', '') == uid;
+      let isRentee = before.get('renteeId', '') == uid || before.get('renterId', '') == uid;
+      let closing = ['Rejected', 'Cancelled', 'Completed', 'Refunded'];
+      let escrowHeld = exists(escrowPath) && get(escrowPath).data.get('status', '') == 'Held';
+      return (isHost || isRentee)
+        && !changed.hasAny(['renteeId', 'renterId', 'hostId', 'bookingFee', 'discountAmount', 'promoCode',
+                            'securityDepositAmount', 'baseRentAmount', 'hostCommissionRate', 'customerPlatformFeeAmount',
+                            'customerPlatformFeeRate', 'totalCustomerPaid', 'escrowStatus', 'refundAmount', 'createdAt'])
+        && (!changed.hasAny(['status']) || (
+          (after.status == 'Approved' && isHost && before.status == 'Pending') ||
+          (after.status == 'Booked' && isRentee && before.status in ['Approved', 'Awaiting Signature']) ||
+          (after.status in closing && !escrowHeld && !(before.status in closing)) ||
+          (!(after.status in closing) && !(after.status in ['Pending', 'Approved', 'Booked']) && !(before.status in closing))
+        ));
+    }
+
     match /rental_requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      // Participants (host, renter, or the rentee/renterId/uid aliases) and claim staff only.
+      // A rentalId-only list is not a party constraint, so strangers cannot read a listing's requests.
+      // Public listing docs stay on /rentals. Collection-group queries have no separate allow.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      // Created / deleted only by the bookingRequest callable (Admin SDK) or staff.
+      allow create, delete: if isAdminOrStaff();
+      allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/rental_escrows/$(requestId))) || isAdminOrStaff();
     }
 
     // Rental Extensions Collection
@@ -447,11 +814,10 @@ service cloud.firestore {
         isRentalEscrowParty(resource.data) || 
         isAdminOrStaff()
       );
-      allow create, update: if isActiveUser() && (
-        isRentalEscrowParty(request.resource.data) || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+      // Phase 4: escrow docs hold real money. Only the bookingRequest / bookingAction / rentalExtension
+      // callables (Admin SDK) write them; clients and parties can only read.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Rental Extension Escrows Collection
@@ -461,11 +827,10 @@ service cloud.firestore {
         isRentalEscrowParty(resource.data) || 
         isAdminOrStaff()
       );
-      allow create, update: if isActiveUser() && (
-        isRentalEscrowParty(request.resource.data) || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+      // Phase 4: escrow docs hold real money. Only the bookingRequest / bookingAction / rentalExtension
+      // callables (Admin SDK) write them; clients and parties can only read.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Rental Contracts Collection (Permanent immutable contract snapshots)
@@ -487,109 +852,111 @@ service cloud.firestore {
     // WORKSPACE: JOBS, APPLICATIONS, ESCROWS & REPUTATION
     // ------------------------------------------------------------------------
 
-    // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
-    match /jobs/{jobId} {
-      allow read: if true; // Publicly browse jobs
-      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
-      
-      allow update: if 
+    // Non-admin job updates, one branch per action (see allow update in /jobs).
+    function isJobParticipantUpdate() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let isCreator = before.creatorId == request.auth.uid;
+      let isWorker = before.get('acceptedApplicantId', null) == request.auth.uid;
+      let openOrReviewing = before.status in ['Open', 'open', 'Reviewing', 'reviewing'];
+      let unassigned = before.get('acceptedApplicantId', null) == null || before.acceptedApplicantId == '';
+      return
         // 1. Creator (Employer): Can update listing details ONLY when job status is Open or Reviewing
-        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
-          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
-          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType', 
-            'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue', 
-            'locationType', 'address', 'landmark', 'status', 'applicantCount', 
-            'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat', 
-            'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng', 
-            'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId', 
-            'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated', 
-            'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl', 
-            'creatorName', 'creatorType', 'createdAt', 'updatedAt',
-            'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
-            'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
-          ])
-        ) ||
+        (isCreator && openOrReviewing && unassigned && changed.hasOnly([
+          'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType',
+          'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue',
+          'locationType', 'addressPublic', 'status', 'applicantCount',
+          'recentApplicantPhotos', 'applicantUids',
+          'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId',
+          'acceptedApplicantName', 'receiptUrl', 'employerRated',
+          'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl',
+          'creatorName', 'creatorType', 'createdAt', 'updatedAt',
+          'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
+          'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
+        ])) ||
         // 1b. Creator (Employer): Resetting, re-opening or cancelling an unacknowledged or expired job
-        (isActiveUser() && resource.data.creatorId == request.auth.uid &&
-          (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment' ||
-           resource.data.status == 'Acknowledgment Expired' || resource.data.status == 'acknowledgment expired') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        (isCreator &&
+          before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment', 'Acknowledgment Expired', 'acknowledgment expired'] &&
+          changed.hasOnly([
             'status', 'acceptedApplicantId', 'acceptedApplicantName', 'updatedAt',
             'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
             'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
-          ])
-        ) ||
+          ])) ||
         // 1c. Creator (Employer): When job is completed/active, can ONLY submit employer rating
-        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
-          resource.data.status != 'Open' && resource.data.status != 'open' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
-        ) ||
+        (isCreator && before.status != 'Open' && before.status != 'open' && changed.hasOnly(['employerRated'])) ||
         // 1d. Creator (Employer): Reclaiming an inactive/stalled job and marking it Abandoned
-        (isActiveUser() && resource.data.creatorId == request.auth.uid &&
-          (request.resource.data.status == 'Abandoned' || request.resource.data.status == 'abandoned') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'abandonedAt', 'abandonReason', 'updatedAt'
-          ])
-        ) ||
+        (isCreator && after.status in ['Abandoned', 'abandoned'] &&
+          changed.hasOnly(['status', 'abandonedAt', 'abandonReason', 'updatedAt'])) ||
         // 1e. Active Participants: Raising a dispute for admin arbitration
-        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-          (request.resource.data.status == 'Disputed' || request.resource.data.status == 'disputed') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'
-          ])
-        ) ||
+        ((isCreator || isWorker) && after.status in ['Disputed', 'disputed'] &&
+          changed.hasOnly(['status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'])) ||
         // Active participants can touch lastActivityAt
-        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActivityAt'])
-        ) ||
+        ((isCreator || isWorker) && changed.hasOnly(['lastActivityAt'])) ||
         // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
-        (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
-          (
-            !('status' in request.resource.data.diff(resource.data).affectedKeys()) ||
-            request.resource.data.status == resource.data.status ||
-            (
-              request.resource.data.status in [
-                'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
-                'in_transit', 'arrived_dropoff', 'Done', 'done', 'Completed', 'completed'
-              ] &&
-              resource.data.status in [
-                'Awaiting Acknowledgment', 'awaiting acknowledgment',
-                'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
-                'in_transit', 'arrived_dropoff', 'Done', 'done'
-              ]
-            )
-          ) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'completionCode', 'receiptUrl', 'nyxianRated',
-            'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'
-          ])
-        ) ||
+        (isWorker &&
+          (!changed.hasAny(['status']) || after.status == before.status ||
+            (after.status in ['In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                             'in_transit', 'arrived_dropoff', 'Done', 'done', 'Completed', 'completed'] &&
+             before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment',
+                            'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                            'in_transit', 'arrived_dropoff', 'Done', 'done'])) &&
+          changed.hasOnly(['status', 'receiptUrl', 'nyxianRated',
+                           'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'])) ||
         // 2b. SLA Expiration or Reminder update by active participants
-        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-          (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'acknowledgmentStatus', 'acknowledgmentReminderSent', 'updatedAt'
-          ])
-        ) ||
+        ((isCreator || isWorker) && before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment'] &&
+          changed.hasOnly(['status', 'acknowledgmentStatus', 'acknowledgmentReminderSent', 'updatedAt'])) ||
         // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
-        (isActiveUser() && 
-          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
-          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'applicantCount', 'applicantUids', 'recentApplicantPhotos'
-          ])
-        ) ||
-        // 4. Admin / Staff
-        isAdminOrStaff();
+        (openOrReviewing && unassigned &&
+          changed.hasOnly(['applicantCount', 'applicantUids', 'recentApplicantPhotos']));
+    }
 
+    // Server-owned completion codes (jobAction generateCode / complete, Admin SDK only). Never readable or writable by a
+    // client, not even the employer: the code reaches the non-verifier through the callable response.
+    match /job_secrets/{jobId} {
+      allow read, write: if false;
+    }
+
+    // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
+    match /jobs/{jobId} {
+      allow read: if true; // Publicly browse jobs
+      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid &&
+        !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']) &&
+        !hasExactListingLocation(request.resource.data);
+      
+      // Update: same per-action conditions as before, but evaluated in ONE function so the shared
+      // values (diff, caller role, status) are computed once. Denied writes used to run every allow
+      // separately and hit the 1,000-expression limit; behaviour is unchanged.
+      // completionCode / verificationCode are server-owned (job_secrets). A client update may not add,
+      // change, or clear them. An unchanged legacy field does not block other listing edits.
+      allow update: if isJobParticipantUpdate() && isActiveUser() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
+      // 4. Admin / Staff
+      allow update: if isAdminOrStaff() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
+
+      // Exact address and coordinates. Signed-in users only. The public job keeps addressPublic.
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
+        );
+        allow delete: if false;
+      }
+
+      // A creator can't delete a job that already has payout/fee records: the tx docs would outlive
+      // it and the public job id could be re-created by someone else (deleteJob / tranyx_app.dart
+      // only delete Open/Cancelled jobs, which never have them).
       allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (
         resource.data.status == 'Open' || 
         resource.data.status == 'open' || 
         resource.data.status == 'Cancelled' || 
         resource.data.status == 'cancelled'
-      )) || isAdminOrStaff();
+      ) && !exists(/databases/$(database)/documents/transactions/$('payout_nyx_' + jobId)) &&
+        !exists(/databases/$(database)/documents/transactions/$('fees_emp_' + jobId))) || isAdminOrStaff();
 
       // Subcollection: Applications
       match /applications/{applicantId} {
@@ -620,10 +987,11 @@ service cloud.firestore {
         )) || isAdminOrStaff();
       }
 
-      // Subcollection: Messages (Job chat room)
+      // Subcollection: Messages (old job chat room): the job's employer, hired worker or applicants.
+      // isChatParty on the caller's own scoped id job_<jobId>_<uid> is exactly that check.
       match /messages/{messageId} {
-        allow read: if isAuthenticated();
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if (isAuthenticated() && isChatParty('job_' + jobId + '_' + request.auth.uid, request.auth.uid)) || isAdminOrStaff();
+        allow write: if (isActiveUser() && isChatParty('job_' + jobId + '_' + request.auth.uid, request.auth.uid)) || isAdminOrStaff();
       }
 
       // Subcollection: Questions (Public Q&A)
@@ -648,29 +1016,17 @@ service cloud.firestore {
         resource.data.workerId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow create: if isActiveUser() && (
-        request.resource.data.employerId == request.auth.uid || 
-        request.resource.data.creatorId == request.auth.uid || 
-        isAdminOrStaff()
-      );
-      allow update: if isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/jobs/$(jobId)) && 
-         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid)
-      )) || isAdminOrStaff();
+      // Phase 4: gig escrow holds real money; only the jobAction callable (Admin SDK) and staff write it.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || isAdminOrStaff());
-      allow delete: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
+      // Phase 4: holdbacks are created at completion and released by jobAction (Admin SDK); staff only from clients.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Job Cancellation Audit Logs Collection
@@ -687,6 +1043,60 @@ service cloud.firestore {
       allow update, delete: if isAdminOrStaff();
     }
 
+    // ------------------------------------------------------------------------
+    // RATINGS & REPORTS (KAN-145): create-only docs, one per (job, rater). Clients never touch the other
+    // user's users/{id} doc. Averages/aggregation belong to the server-side ledger work (KAN-126).
+    // ------------------------------------------------------------------------
+
+    // The two parties of a job are its creator (employer) and its accepted applicant (worker).
+    function isJobPartyPair(jobId, a, b) {
+      let j = get(/databases/$(database)/documents/jobs/$(jobId)).data;
+      let w = j.get('acceptedApplicantId', null);
+      return w != null && a != b &&
+        ((j.creatorId == a && w == b) || (j.creatorId == b && w == a));
+    }
+
+    // Rating: only for a Completed job; rater and ratee are its two parties; 1..5 int; optional comment.
+    function isValidRatingCreate(ratingId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'raterId', 'rateeId', 'rating', 'comment', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'raterId', 'rateeId', 'rating', 'createdAt']) &&
+        d.jobId is string && d.raterId == request.auth.uid && d.rateeId is string &&
+        ratingId == d.jobId + '_' + d.raterId &&
+        d.rating is int && d.rating >= 1 && d.rating <= 5 &&
+        (!('comment' in d) || (d.comment is string && d.comment.size() <= 500)) &&
+        d.createdAt == request.time &&
+        get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Completed', 'completed'] &&
+        isJobPartyPair(d.jobId, d.raterId, d.rateeId);
+    }
+
+    // Report: any job that has an assigned worker (in progress, completed, cancelled/abandoned/disputed
+    // after assignment), never an Open/Reviewing job.
+    function isValidReportCreate(reportId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'reporterId', 'reportedId', 'reason', 'details', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'reporterId', 'reportedId', 'reason', 'createdAt']) &&
+        d.jobId is string && d.reporterId == request.auth.uid && d.reportedId is string &&
+        reportId == d.jobId + '_' + d.reporterId &&
+        d.reason is string && d.reason.size() >= 1 && d.reason.size() <= 100 &&
+        (!('details' in d) || (d.details is string && d.details.size() <= 1000)) &&
+        d.createdAt == request.time &&
+        !(get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Open', 'open', 'Reviewing', 'reviewing']) &&
+        isJobPartyPair(d.jobId, d.reporterId, d.reportedId);
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if isAuthenticated() && (resource.data.raterId == request.auth.uid || resource.data.rateeId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidRatingCreate(ratingId);
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() && (resource.data.reporterId == request.auth.uid || resource.data.reportedId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidReportCreate(reportId);
+    }
+
 // >>> SOURCE: firestore_rules/40_workspace_properties.rules
     // ------------------------------------------------------------------------
     // WORKSPACE: PROPERTY RENTALS, LEASES & CONTRACT DOCUMENTS
@@ -695,9 +1105,10 @@ service cloud.firestore {
     // Properties Collection (Anti-Exploitation: Host CANNOT alter pricing/rules once booked)
     match /properties/{propertyId} {
       allow read: if true;
-      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
+      allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
+        !hasExactListingLocation(request.resource.data);
       
-      allow update: if 
+      allow update: if !listingUpdateTouchesExactLocation() && (
         // 1. Host (Property Owner): Can update property details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
@@ -714,7 +1125,7 @@ service cloud.firestore {
             'securityDepositAmount', 'advanceAmount', 'depositType',
             'depositValue', 'securityDepositPolicy',
             // Location & specs
-            'address', 'location', 'landmark', 'lat', 'lng', 'latitude', 'longitude',
+            'addressPublic',
             'bedrooms', 'bathrooms', 'maxGuests', 'sqft', 'furnishing',
             'amenities', 'houseRules',
             // Photos & legal terms
@@ -776,7 +1187,15 @@ service cloud.firestore {
           ])
         ) ||
         // 3. Admin / Staff
-        isAdminOrStaff();
+        isAdminOrStaff()
+      );
+
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' &&
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
+        allow delete: if false;
+      }
 
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
@@ -793,8 +1212,11 @@ service cloud.firestore {
 
     // Property Requests Collection
     match /property_requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      // Same party rule as rental_requests. Public listing docs stay on /properties.
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      // Created / deleted only by the bookingRequest callable (Admin SDK) or staff. See requestPartyUpdateOk (20_workspace_rentals).
+      allow create, delete: if isAdminOrStaff();
+      allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/property_escrows/$(requestId))) || isAdminOrStaff();
     }
 
     // Property Escrows Collection (Dual-field support for renteeId & renterId)
@@ -804,11 +1226,10 @@ service cloud.firestore {
         isRentalEscrowParty(resource.data) || 
         isAdminOrStaff()
       );
-      allow create, update: if isActiveUser() && (
-        isRentalEscrowParty(request.resource.data) || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && isRentalEscrowParty(resource.data)) || isAdminOrStaff();
+      // Phase 4: escrow docs hold real money. Only the bookingRequest / bookingAction / rentalExtension
+      // callables (Admin SDK) write them; clients and parties can only read.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Property History Collection
@@ -830,46 +1251,186 @@ service cloud.firestore {
     // WORKSPACE: CHATS, COMMUNICATIONS, SUPPORT TICKETS & NOTIFICATIONS
     // ------------------------------------------------------------------------
 
-    // Notifications Collection
+    // Chat ids name the record they belong to (index.html sendChatMessage, tranyx_app.dart openChat,
+    // active_trip_tracker_sheet.dart:263, job_repository.dart:462):
+    //   job_<jobId>_<uid>                      employer <-> that applicant or hired worker
+    //   rental_<rentalId>_<uid>, property_<propertyId>_<uid>   listing host <-> that renter
+    //   <jobId>                                legacy room: employer <-> hired worker
+    // Membership comes from that record, not chats.userIds, because web posts the first message before
+    // it writes the chat doc (index.html:2046 runs before the async :1998).
+    function chatInfo(chatId) {
+      let p = chatId.split('_');
+      let kind = (p.size() == 3 && p[0] in ['job', 'rental', 'property']) ? p[0] : 'legacy';
+      let coll = kind == 'rental' ? 'rentals' : (kind == 'property' ? 'properties' : 'jobs');
+      let path = /databases/$(database)/documents/$(coll)/$(kind == 'legacy' ? chatId : p[1]);
+      let rec = exists(path) ? get(path).data : {};
+      let renter = kind == 'legacy' ? rec.get('acceptedApplicantId', null) : p[2];
+      return {
+        'kind': kind,
+        'rec': rec,
+        'renter': renter,
+        'owner': kind in ['rental', 'property'] ? rec.get('hostId', null) : rec.get('creatorId', null),
+        'renterOk': kind == 'legacy' ||
+          (kind == 'job' && (renter == rec.get('acceptedApplicantId', null) || renter in rec.get('applicantUids', []))) ||
+          (kind != 'job' && renter == rec.get('renteeId', null))
+      };
+    }
+
+    // A pending/approved requester is not the listing's renteeId yet and request ids (req_<micros>) can't be
+    // derived from the chat id, so for rental/property chats the renter is also a party once the HOST has
+    // written them into userIds (manage_property_modal.dart:905, manage_vehicle_modal.dart:1193).
+    // Ceiling: a requester can't open that chat until the host has messaged first. Upgrade: put the
+    // request id in the chat id, or let a Cloud Function create the chat on request approval.
+    function isChatParty(chatId, uid) {
+      let c = chatInfo(chatId);
+      let chatPath = /databases/$(database)/documents/chats/$(chatId);
+      return (c.owner != null && uid == c.owner) ||
+        (c.renter != null && uid == c.renter && (c.renterOk ||
+          (c.kind in ['rental', 'property'] && exists(chatPath) && uid in get(chatPath).data.get('userIds', []))));
+    }
+
+    function isValidChatDoc(chatId) {
+      let d = request.resource.data;
+      // added + changed: allow-listed. removedKeys: never drop userIds; never strip status/resolvedAt (KAN-139).
+      // Web chat touches use masked setDocument (firebase_service.dart ack/expire/reminder/reset); other removals (e.g. legacy createdAt) stay ok.
+      let df = d.diff(resource == null ? {} : resource.data);
+      let changed = df.addedKeys().union(df.changedKeys());
+      let removed = df.removedKeys();
+      let c = chatInfo(chatId);
+      return changed.hasOnly(['userIds', 'jobId', 'applicantId', 'rentalId', 'propertyId', 'type', 'id', 'lastMessage', 'updatedAt']) &&
+        !removed.hasAny(['userIds', 'status', 'resolvedAt']) &&
+        (!('userIds' in changed) || !('userIds' in d) ||
+          (d.userIds is list && d.userIds.size() == 2 && d.userIds.toSet() == [c.renter, c.owner].toSet()));
+    }
+
+    // senderId is the caller, or 'system' with a known type. Ceiling: clients still write system
+    // messages (job_repository.dart:463, firebase_service.dart:1778/1981/2643/2705/2781/2854,
+    // tranyx_app.dart:4933) until a Cloud Function owns them (CHAT-P1).
+    function isValidChatMessage(chatId) {
+      let d = request.resource.data;
+      let c = chatInfo(chatId);
+      return d.keys().hasOnly(['senderId', 'senderName', 'text', 'content', 'photoUrl', 'type', 'createdAt',
+                               'category', 'deadline', 'slaMinutes', 'disputeId', 'openedBy']) &&
+        (d.senderId == request.auth.uid ? d.get('type', 'text') == 'text' :
+          (d.senderId == 'system' && d.get('type', '') in ['acknowledgment_request', 'acknowledgment_confirmed',
+            'acknowledgment_expired', 'acknowledgment_reminder', 'job_reopened', 'job_abandoned', 'dispute_opened'])) &&
+        // epoch ms from up to 24 h ago (offline queue) to 5 min ahead (clock skew).
+        (d.createdAt == request.time || (d.createdAt is int && d.createdAt >= request.time.toMillis() - 86400000 &&
+          d.createdAt <= request.time.toMillis() + 300000)) &&
+        d.get('text', '') is string && d.get('text', '').size() <= 2000 &&
+        d.get('content', '') is string && d.get('content', '').size() <= 2000 &&
+        // Host switched chat off on the listing (manage_listing_sheet.dart:1504); the host can still post.
+        (c.kind in ['job', 'legacy'] || request.auth.uid == c.owner || c.rec.get('allowChat', true) != false);
+    }
+
+    // Notifications Collection. Any signed-in user may notify another (chat, hire, P2P flows write the
+    // recipient's doc); only the recipient or admin reads, deletes or marks it.
     match /notifications/{notifId} {
-      allow read, update, delete: if resource == null || !('uid' in resource.data) || resource.data.uid == request.auth.uid || isAdminOrStaff() || isAuthenticated();
+      allow read, delete: if (isAuthenticated() && resource.data.get('uid', null) == request.auth.uid) || isAdminOrStaff();
+      // 'id': web re-saves the doc it read with its id field (tranyx_app.dart:1211).
+      allow update: if (isAuthenticated() && resource.data.get('uid', null) == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'id'])) || isAdminOrStaff();
       allow create: if isActiveUser() || isAuthenticated() || isAdminOrStaff();
     }
 
     // Direct Chats Collection
     match /chats/{chatId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow get: if (isAuthenticated() && isChatParty(chatId, request.auth.uid)) || isAdminOrStaff();
+      allow list, delete: if isAdminOrStaff();
+      allow create, update: if (isActiveUser() && isChatParty(chatId, request.auth.uid) && isValidChatDoc(chatId)) || isAdminOrStaff();
 
       match /messages/{messageId} {
-        allow read, write: if isActiveUser() || isAdminOrStaff();
+        allow read: if (isAuthenticated() && isChatParty(chatId, request.auth.uid)) || isAdminOrStaff();
+        allow create: if (isActiveUser() && isChatParty(chatId, request.auth.uid) && isValidChatMessage(chatId)) || isAdminOrStaff();
+        allow update, delete: if isAdminOrStaff();
       }
     }
 
-    // Support Chats Collection
+    // Support Chats Collection: keyed by the user's uid; the support desk is staff/agents (isAdminOrStaff).
     match /support_chats/{chatId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isOwner(chatId) || isAdminOrStaff();
+      allow write: if (isOwner(chatId) && isActiveUser()) || isAdminOrStaff();
       match /messages/{messageId} {
-        allow read, write: if isActiveUser() || isAdminOrStaff();
+        allow read: if isOwner(chatId) || isAdminOrStaff();
+        allow create: if (isOwner(chatId) && isActiveUser() && request.resource.data.senderId == request.auth.uid) || isAdminOrStaff();
+        allow update, delete: if isAdminOrStaff();
       }
+    }
+
+    // Support ticket create: only the web profile_view.dart submitTicket writes these (uid, userEmail, userName,
+    // subject, description, category, status 'Open', createdAt epoch ms). Mobile writes none; the admin panel
+    // (staff) handles everything else, so owners never update or delete.
+    function isValidTicketCreate() {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['uid', 'userEmail', 'userName', 'subject', 'description', 'category', 'status', 'createdAt']) &&
+        d.keys().hasAll(['uid', 'subject', 'description', 'status', 'createdAt']) &&
+        d.uid == request.auth.uid &&
+        d.status == 'Open' &&
+        d.subject is string && d.subject.size() > 0 && d.subject.size() <= 200 &&
+        d.description is string && d.description.size() > 0 && d.description.size() <= 5000 &&
+        d.get('category', '') is string && d.get('category', '').size() <= 50 &&
+        d.get('userName', '') is string && d.get('userName', '').size() <= 100 &&
+        d.get('userEmail', '') is string && d.get('userEmail', '').size() <= 254 &&
+        d.createdAt is number &&
+        d.createdAt >= request.time.toMillis() - 600000 && d.createdAt <= request.time.toMillis() + 600000;
+    }
+
+    // KAN-143 follow-up: ticket owner = the parent ticket's uid/userId (web writes uid). Replies are written
+    // only by the admin panel (tickets.dart adds supportTickets/<id>/responses as staff); no web or mobile
+    // client reads or writes them, so they are owner-read, staff-write.
+    function isTicketOwner(ticketPath) {
+      return exists(ticketPath) && (
+        get(ticketPath).data.get('uid', '') == request.auth.uid ||
+        get(ticketPath).data.get('userId', '') == request.auth.uid);
     }
 
     // Support Tickets Collections (Cross-platform compatibility)
     match /supportTickets/{ticketId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidTicketCreate() || isAdminOrStaff();
+      allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() && (isAdminOrStaff() ||
+          isTicketOwner(/databases/$(database)/documents/supportTickets/$(ticketId)));
+        allow write: if isAdminOrStaff();
       }
     }
 
     match /support_tickets/{ticketId} {
-      allow read, write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidTicketCreate() || isAdminOrStaff();
+      allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() && (isAdminOrStaff() ||
+          isTicketOwner(/databases/$(database)/documents/support_tickets/$(ticketId)));
+        allow write: if isAdminOrStaff();
       }
     }
 
+    // KAN-143: clients only create "flagged_for_ban" tickets about themselves (web index.html, mobile chat
+    // views); the owner reads their own, staff do everything else.
     match /tickets/{ticketId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated() && (resource.data.get('userId', '') == request.auth.uid || isAdminOrStaff());
+      allow create: if (isActiveUser() &&
+        request.resource.data.keys().hasOnly([
+          'id', 'subject', 'title', 'userId', 'userName', 'chatId', 'reason', 'lastOffendingMessage',
+          'violationType', 'status', 'priority', 'createdAt', 'updatedAt'
+        ]) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'flagged_for_ban' &&
+        request.resource.data.get('lastOffendingMessage', '') is string &&
+        request.resource.data.get('lastOffendingMessage', '').size() <= 2000 &&
+        request.resource.data.get('reason', '') is string &&
+        request.resource.data.get('reason', '').size() <= 500) || isAdminOrStaff();
+      allow update, delete: if isAdminOrStaff();
+    }
+
+    function isDisputeParty(disputePath) {
+      return exists(disputePath) && (
+        get(disputePath).data.get('openedBy', '') == request.auth.uid ||
+        get(disputePath).data.get('employerId', '') == request.auth.uid ||
+        get(disputePath).data.get('acceptedNyxianId', '') == request.auth.uid);
     }
 
     // Disputes Collection (Review and resolution portal)
@@ -899,8 +1460,17 @@ service cloud.firestore {
       );
       allow delete: if isAdminOrStaff();
 
+      // KAN-143 follow-up: only the dispute's parties and staff. No web or mobile client or the admin panel
+      // reads or writes this subcollection today; parties may add messages as themselves, staff moderate.
       match /messages/{messageId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() && (isAdminOrStaff() ||
+          isDisputeParty(/databases/$(database)/documents/disputes/$(disputeId)));
+        allow create: if isAdminOrStaff() || (isActiveUser() &&
+          isDisputeParty(/databases/$(database)/documents/disputes/$(disputeId)) &&
+          request.resource.data.get('senderId', '') == request.auth.uid &&
+          request.resource.data.get('text', '') is string &&
+          request.resource.data.get('text', '').size() <= 2000);
+        allow update, delete: if isAdminOrStaff();
       }
 
       match /notes/{noteId} {
@@ -913,10 +1483,11 @@ service cloud.firestore {
     // ADMIN PORTAL OPERATIONS, P2P DESK & SYSTEM CONFIGURATION
     // ------------------------------------------------------------------------
 
-    // P2P Agents Collection (Publicly readable verified agent QR credentials)
+    // P2P Agents Collection. Public read of QR credentials. Creating or editing an agent is an admin claim,
+    // not a users-doc flag and not an existing agent document.
     match /p2p_agents/{agentId} {
       allow read: if true;
-      allow write: if isAdminOrStaff() || (isOwner(agentId) && isStaffEmail());
+      allow write: if isClaimAdmin();
     }
 
     // Unified Requests Collection (Admin Portal: Enforces 3-Min Claim Limit & Single-Agent Lock)
@@ -953,24 +1524,22 @@ service cloud.firestore {
     }
 
     // Email & Mail Logging Collections
+    // KAN-143: mail/emails are written only by the admin panel (ticket_email_service) and read by the mail
+    // extension (Admin SDK); no web/mobile client touches them, so signed-in users cannot relay or read mail.
     match /mail/{mailId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAdminOrStaff();
     }
     match /emails/{mailId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAdminOrStaff();
     }
 
-    // Audit Logs Collections
+    // Audit Logs Collections (KAN-143: no client writes them; the admin panel uses admin_audit_logs)
     match /audit_logs/{logId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdminOrStaff();
+      allow read, write: if isAdminOrStaff();
     }
 
     match /auditLogs/{logId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdminOrStaff();
+      allow read, write: if isAdminOrStaff();
     }
 
     match /admin_audit_logs/{logId} {
@@ -983,21 +1552,34 @@ service cloud.firestore {
 
     // System Config Collection (Treasury keys and backend config - Admin only!)
     match /system_config/{docId} {
-      allow read, write: if isAdminOrStaff();
+      allow read, write: if isClaimAdmin();
     }
     match /system_config/{docId}/{subPath=**} {
-      allow read, write: if isAdminOrStaff();
+      allow read, write: if isClaimAdmin();
     }
 
-    // Config Collection (App-level and third-party API configs)
+    // Config Collection. Clients only read config/app_config; third-party API docs (e.g. config/imgbb) are admin only.
     match /config/{docId} {
+      allow read: if isAdminOrStaff() || (isAuthenticated() && docId == 'app_config');
+      allow write: if isAdminOrStaff();
+    }
+
+    // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
+    match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
       allow write: if isAdminOrStaff();
     }
 
-    // Platform Fees Collection (Admin managed)
-    match /platform_fees/{feeId} {
-      allow read: if isAuthenticated();
+    // settings/platform_fees: the fee rates the web/mobile apps read before showing a gig/booking total.
+    // Everything else under settings stays closed. Writes are admin/staff only (the server reads it with the Admin SDK).
+    // Audit trail of staffOps: Admin SDK writes only. Read is an admin custom claim, not an agent or a users-doc flag.
+    match /staff_audit_log/{opId} {
+      allow read: if isClaimAdmin();
+      allow write: if false;
+    }
+
+    match /settings/{docId} {
+      allow read: if isAuthenticated() && docId == 'platform_fees';
       allow write: if isAdminOrStaff();
     }
 

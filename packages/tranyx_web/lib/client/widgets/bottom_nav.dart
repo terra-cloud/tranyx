@@ -1,5 +1,6 @@
 import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
+import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
@@ -14,16 +15,53 @@ class BottomNavComponent extends StatelessComponent {
     final isDark = s.isDark;
     final bgCls = isDark ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white/90 border-zinc-200';
 
+    final isEmployerRole = s.currentViewMode == AccountType.employer && !s.isGuestBrowse;
+    final locked = s.isGuestBrowse;
+    final fabLabel = locked ? 'Locked' : (isEmployerRole ? 'Post a gig' : 'Find gigs');
+    final fabIcon = locked ? 'plus' : (isEmployerRole ? 'plus' : 'zap');
+
+    // W14 floating bar: Home · Jobs · [role action] · Rentals · Profile. Messages lives in the app bar.
     return nav(
-      classes: 'md:hidden fixed bottom-0 left-0 right-0 border-t backdrop-blur-sm pb-safe z-40 $bgCls',
+      classes: 'md:hidden fixed bottom-3 left-3 right-3 z-40 pb-safe',
       [
-        div(classes: 'flex items-center justify-around px-2 py-2', [
-          _navItem(AppTab.home, 'home', 'Home', s, isDark),
-          _navItem(AppTab.jobs, 'briefcase', 'Jobs', s, isDark),
-          _navItem(AppTab.transit, 'key', 'Rentals', s, isDark),
-          _navItem(AppTab.messages, 'message-circle', 'Messages', s, isDark),
-          _navItem(AppTab.profile, 'user', 'Profile', s, isDark),
-        ]),
+        div(
+          classes:
+              'relative flex items-center justify-around px-2 py-1.5 rounded-[28px] border backdrop-blur-sm shadow-lg $bgCls',
+          [
+            _navItem(AppTab.home, 'home', 'Home', s, isDark),
+            _navItem(AppTab.jobs, 'briefcase', 'Jobs', s, isDark),
+            div(classes: 'w-20 shrink-0', []), // slot for the raised role button
+            _navItem(AppTab.transit, 'key', 'Rentals', s, isDark),
+            _navItem(AppTab.profile, 'user', 'Profile', s, isDark),
+            div(classes: 'absolute left-1/2 -translate-x-1/2 -top-5 flex flex-col items-center', [
+              button(
+                classes:
+                    'size-14 rounded-full border-4 flex items-center justify-center cursor-pointer text-white '
+                    '${locked ? (isDark ? "bg-zinc-700 border-zinc-900" : "bg-zinc-400 border-white") : "bg-gradient-to-br from-[#4f46e5] to-[#7c3aed] shadow-[0_8px_16px_rgba(79,70,229,0.35)] ${isDark ? "border-zinc-900" : "border-white"}"}',
+                attributes: {'type': 'button', 'title': fabLabel, 'aria-label': fabLabel},
+                events: {
+                  'click': (_) {
+                    if (locked) {
+                      s.openGuestGate();
+                    } else if (isEmployerRole) {
+                      s.setState(() {
+                        s.activeTab = AppTab.jobs;
+                        s.jobsView = JobsView.create;
+                      });
+                    } else {
+                      s.openJobsBrowse();
+                    }
+                  },
+                },
+                [lIcon(fabIcon, cls: 'w-6 h-6')],
+              ),
+              span(
+                classes: 'mt-0.5 text-[10px] font-semibold ${isDark ? "text-zinc-400" : "text-[#52525b]"}',
+                [Component.text(fabLabel)],
+              ),
+            ]),
+          ],
+        ),
       ],
     );
   }
@@ -46,7 +84,7 @@ class BottomNavComponent extends StatelessComponent {
 
     return button(
       classes:
-          'flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-colors cursor-pointer ${isActive ? activeTxt : inactiveTxt}',
+          'flex flex-col items-center gap-1 px-3 py-1.5 rounded-2xl transition-colors cursor-pointer ${isActive ? activeTxt : inactiveTxt}',
       events: {'click': (_) => s.switchTab(tab)},
       attributes: {'type': 'button', 'title': label},
       [

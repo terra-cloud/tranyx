@@ -10,6 +10,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/wallet_verify.dart';
+import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
+import 'package:tranyx_mobile/core/services/mwa_payment.dart';
+import 'package:tranyx_mobile/core/services/onchain_credit.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/core/utils/secure_storage_helper.dart';
 import 'package:shared/shared.dart';
@@ -299,32 +304,17 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
                 }
               }
 
-              await ref
-                  .read(firestoreProvider)
-                  .collection('users')
-                  .doc(user.uid)
-                  .update({
-                'walletPublicKey': address,
-                'connectedWalletType': 'trust',
-              });
-
-              final password = await SecureStorageHelper.getPassword();
-              final obfuscatedPassword = password != null
-                  ? SecureStorageHelper.obfuscate(password)
-                  : null;
-              final linkData = <String, dynamic>{
-                'uid': user.uid,
-                'email': user.email,
-                'linkedAt': DateTime.now().millisecondsSinceEpoch,
-              };
-              if (obfuscatedPassword != null) {
-                linkData['password'] = obfuscatedPassword;
-              }
-              await ref
-                  .read(firestoreProvider)
-                  .collection('walletLinks')
-                  .doc(address)
-                  .set(linkData);
+              // uid + linkedAt only, never credentials (KAN-124). One batch with the profile key:
+              // both land or neither does.
+              final firestore = ref.read(firestoreProvider);
+              await (firestore.batch()
+                    ..set(firestore.collection('walletLinks').doc(address),
+                        {'uid': user.uid, 'linkedAt': DateTime.now().millisecondsSinceEpoch})
+                    ..update(firestore.collection('users').doc(user.uid), {
+                      'walletPublicKey': address,
+                      'connectedWalletType': 'trust',
+                    }))
+                  .commit();
 
               ref.invalidate(userProfileProvider);
               if (mounted) {
@@ -336,6 +326,9 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
             } catch (e) {
               if (mounted) {
                 setState(() => _isProcessing = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to save Trust Wallet address: $e'), backgroundColor: Colors.red),
+                );
               }
             }
           }
@@ -395,6 +388,9 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
     setState(() => _isProcessing = true);
 
     try {
+      // The server credits only a proven wallet: verify it first (one signature) so no money moves unverified.
+      await ensureWalletVerified(mwa: ref.read(mwaServiceProvider), walletType: walletType, pubkey: userPubkey);
+
       final firestore = ref.read(firestoreProvider);
       String? treasuryPublicKey = Env.solanaPublicKey.isNotEmpty ? Env.solanaPublicKey : null;
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
@@ -416,6 +412,41 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
 
       if (treasuryPublicKey == null || treasuryPublicKey.isEmpty) {
         throw Exception('Treasury wallet is not configured.');
+      }
+
+      if (walletType == kMwaWalletType) {
+        // Android MWA: the wallet pays the treasury; Hybrid PRO is activated only
+        // after the transaction is finalized and verified (linked wallet ->
+        // treasury, exact amount), once per signature.
+        final signature = await payTreasuryViaMwa(
+          mwa: ref.read(mwaServiceProvider),
+          phantom: ref.read(phantomServiceProvider),
+          linkedPubkey: userPubkey,
+          treasuryPublicKey: treasuryPublicKey,
+          isSol: true,
+          cryptoAmount: cryptoAmount,
+          firestore: firestore,
+          uid: uid,
+          kind: 'subscription',
+          phpAmount: phpAmount,
+        );
+        (await activateSubscriptionOnce(
+          firestore: firestore,
+          uid: uid,
+          signature: signature,
+          plan: _selectedPlan,
+        )).throwIfHeldElsewhere(signature);
+        ref.invalidate(userProfileProvider);
+        ref.invalidate(userTransactionsProvider);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Successfully subscribed to Hybrid PRO (${_selectedPlan == 'yearly' ? 'Yearly' : 'Monthly'})!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return;
       }
 
       if (walletType == 'trust') {
@@ -488,28 +519,13 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
         await SecureStorageHelper.deletePendingAction();
         await SecureStorageHelper.deletePendingSubscriptionType();
 
-        final now = DateTime.now();
-        final premiumUntil = _selectedPlan == 'yearly'
-            ? now.add(const Duration(days: 365))
-            : now.add(const Duration(days: 30));
-
-        await firestore.collection('users').doc(uid).update({
-          'isPremium': true,
-          'premiumUntil': premiumUntil.millisecondsSinceEpoch,
-          'accountType': 'hybrid',
-        });
-
-        final txId = 'sub_sol_$txSignature';
-        await firestore.collection('transactions').doc(txId).set({
-          'uid': uid,
-          'type': 'subscription',
-          'amount': phpAmount,
-          'title': 'Hybrid PRO Subscription (${_selectedPlan == 'yearly' ? 'Yearly' : 'Monthly'})',
-          'desc': 'Subscribed via Trust Wallet (${cryptoAmount.toStringAsFixed(4)} SOL)',
-          'method': 'Trust Wallet',
-          'solanaTxSignature': txSignature,
-          'createdAt': now.millisecondsSinceEpoch,
-        });
+        // Activate once per signature; expiry extends from max(now, premiumUntil).
+        (await activateSubscriptionOnce(
+          firestore: firestore,
+          uid: uid,
+          signature: txSignature,
+          plan: _selectedPlan,
+        )).throwIfHeldElsewhere(txSignature);
 
         ref.invalidate(userProfileProvider);
         ref.invalidate(userTransactionsProvider);
@@ -547,7 +563,12 @@ class _SubscriptionPaneState extends ConsumerState<SubscriptionPane> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Subscription failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(e is MwaException ? e.message : 'Subscription failed: $e'),
+            backgroundColor: e is MwaException && e.type == MwaFailureType.userCancelled
+                ? Colors.orange
+                : Colors.red,
+          ),
         );
       }
     } finally {

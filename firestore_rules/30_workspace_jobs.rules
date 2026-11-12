@@ -2,109 +2,111 @@
     // WORKSPACE: JOBS, APPLICATIONS, ESCROWS & REPUTATION
     // ------------------------------------------------------------------------
 
-    // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
-    match /jobs/{jobId} {
-      allow read: if true; // Publicly browse jobs
-      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid;
-      
-      allow update: if 
+    // Non-admin job updates, one branch per action (see allow update in /jobs).
+    function isJobParticipantUpdate() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let isCreator = before.creatorId == request.auth.uid;
+      let isWorker = before.get('acceptedApplicantId', null) == request.auth.uid;
+      let openOrReviewing = before.status in ['Open', 'open', 'Reviewing', 'reviewing'];
+      let unassigned = before.get('acceptedApplicantId', null) == null || before.acceptedApplicantId == '';
+      return
         // 1. Creator (Employer): Can update listing details ONLY when job status is Open or Reviewing
-        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
-          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
-          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType', 
-            'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue', 
-            'locationType', 'address', 'landmark', 'status', 'applicantCount', 
-            'recentApplicantPhotos', 'applicantUids', 'pickupAddress', 'pickupLat', 
-            'pickupLng', 'destinationAddress', 'destinationLat', 'destinationLng', 
-            'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId', 
-            'acceptedApplicantName', 'completionCode', 'receiptUrl', 'employerRated', 
-            'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl', 
-            'creatorName', 'creatorType', 'createdAt', 'updatedAt',
-            'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
-            'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
-          ])
-        ) ||
+        (isCreator && openOrReviewing && unassigned && changed.hasOnly([
+          'id', 'title', 'description', 'category', 'categoryGroup', 'employmentType',
+          'dateRequirement', 'jobDate', 'timePreference', 'pricingType', 'pricingValue',
+          'locationType', 'addressPublic', 'status', 'applicantCount',
+          'recentApplicantPhotos', 'applicantUids',
+          'hasTracker', 'hasInspectionHoldback', 'imageUrls', 'acceptedApplicantId',
+          'acceptedApplicantName', 'receiptUrl', 'employerRated',
+          'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl',
+          'creatorName', 'creatorType', 'createdAt', 'updatedAt',
+          'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
+          'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
+        ])) ||
         // 1b. Creator (Employer): Resetting, re-opening or cancelling an unacknowledged or expired job
-        (isActiveUser() && resource.data.creatorId == request.auth.uid &&
-          (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment' ||
-           resource.data.status == 'Acknowledgment Expired' || resource.data.status == 'acknowledgment expired') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        (isCreator &&
+          before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment', 'Acknowledgment Expired', 'acknowledgment expired'] &&
+          changed.hasOnly([
             'status', 'acceptedApplicantId', 'acceptedApplicantName', 'updatedAt',
             'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
             'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
-          ])
-        ) ||
+          ])) ||
         // 1c. Creator (Employer): When job is completed/active, can ONLY submit employer rating
-        (isActiveUser() && resource.data.creatorId == request.auth.uid && 
-          resource.data.status != 'Open' && resource.data.status != 'open' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerRated'])
-        ) ||
+        (isCreator && before.status != 'Open' && before.status != 'open' && changed.hasOnly(['employerRated'])) ||
         // 1d. Creator (Employer): Reclaiming an inactive/stalled job and marking it Abandoned
-        (isActiveUser() && resource.data.creatorId == request.auth.uid &&
-          (request.resource.data.status == 'Abandoned' || request.resource.data.status == 'abandoned') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'abandonedAt', 'abandonReason', 'updatedAt'
-          ])
-        ) ||
+        (isCreator && after.status in ['Abandoned', 'abandoned'] &&
+          changed.hasOnly(['status', 'abandonedAt', 'abandonReason', 'updatedAt'])) ||
         // 1e. Active Participants: Raising a dispute for admin arbitration
-        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-          (request.resource.data.status == 'Disputed' || request.resource.data.status == 'disputed') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'
-          ])
-        ) ||
+        ((isCreator || isWorker) && after.status in ['Disputed', 'disputed'] &&
+          changed.hasOnly(['status', 'disputeId', 'disputedAt', 'disputedBy', 'updatedAt'])) ||
         // Active participants can touch lastActivityAt
-        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActivityAt'])
-        ) ||
+        ((isCreator || isWorker) && changed.hasOnly(['lastActivityAt'])) ||
         // 2. Assigned Nyxian (Freelancer): Can update work progress, status & completion fields
-        (isActiveUser() && 'acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid && 
-          (
-            !('status' in request.resource.data.diff(resource.data).affectedKeys()) ||
-            request.resource.data.status == resource.data.status ||
-            (
-              request.resource.data.status in [
-                'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
-                'in_transit', 'arrived_dropoff', 'Done', 'done', 'Completed', 'completed'
-              ] &&
-              resource.data.status in [
-                'Awaiting Acknowledgment', 'awaiting acknowledgment',
-                'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
-                'in_transit', 'arrived_dropoff', 'Done', 'done'
-              ]
-            )
-          ) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'completionCode', 'receiptUrl', 'nyxianRated',
-            'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'
-          ])
-        ) ||
+        (isWorker &&
+          (!changed.hasAny(['status']) || after.status == before.status ||
+            (after.status in ['In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                             'in_transit', 'arrived_dropoff', 'Done', 'done', 'Completed', 'completed'] &&
+             before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment',
+                            'In Progress', 'in progress', 'arrived_pickup', 'paid_cashier',
+                            'in_transit', 'arrived_dropoff', 'Done', 'done'])) &&
+          changed.hasOnly(['status', 'receiptUrl', 'nyxianRated',
+                           'acknowledgedAt', 'acknowledgmentStatus', 'updatedAt'])) ||
         // 2b. SLA Expiration or Reminder update by active participants
-        (isActiveUser() && (resource.data.creatorId == request.auth.uid || ('acceptedApplicantId' in resource.data && resource.data.acceptedApplicantId == request.auth.uid)) &&
-          (resource.data.status == 'Awaiting Acknowledgment' || resource.data.status == 'awaiting acknowledgment') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'acknowledgmentStatus', 'acknowledgmentReminderSent', 'updatedAt'
-          ])
-        ) ||
+        ((isCreator || isWorker) && before.status in ['Awaiting Acknowledgment', 'awaiting acknowledgment'] &&
+          changed.hasOnly(['status', 'acknowledgmentStatus', 'acknowledgmentReminderSent', 'updatedAt'])) ||
         // 3. Any Active Applicant: Can apply to or withdraw from an Open/Reviewing job
-        (isActiveUser() && 
-          (resource.data.status == 'Open' || resource.data.status == 'open' || resource.data.status == 'Reviewing' || resource.data.status == 'reviewing') &&
-          (!('acceptedApplicantId' in resource.data) || resource.data.acceptedApplicantId == null || resource.data.acceptedApplicantId == '') &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'applicantCount', 'applicantUids', 'recentApplicantPhotos'
-          ])
-        ) ||
-        // 4. Admin / Staff
-        isAdminOrStaff();
+        (openOrReviewing && unassigned &&
+          changed.hasOnly(['applicantCount', 'applicantUids', 'recentApplicantPhotos']));
+    }
 
+    // Server-owned completion codes (jobAction generateCode / complete, Admin SDK only). Never readable or writable by a
+    // client, not even the employer: the code reaches the non-verifier through the callable response.
+    match /job_secrets/{jobId} {
+      allow read, write: if false;
+    }
+
+    // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
+    match /jobs/{jobId} {
+      allow read: if true; // Publicly browse jobs
+      allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid &&
+        !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']) &&
+        !hasExactListingLocation(request.resource.data);
+      
+      // Update: same per-action conditions as before, but evaluated in ONE function so the shared
+      // values (diff, caller role, status) are computed once. Denied writes used to run every allow
+      // separately and hit the 1,000-expression limit; behaviour is unchanged.
+      // completionCode / verificationCode are server-owned (job_secrets). A client update may not add,
+      // change, or clear them. An unchanged legacy field does not block other listing edits.
+      allow update: if isJobParticipantUpdate() && isActiveUser() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
+      // 4. Admin / Staff
+      allow update: if isAdminOrStaff() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['completionCode', 'verificationCode']) &&
+        !listingUpdateTouchesExactLocation();
+
+      // Exact address and coordinates. Signed-in users only. The public job keeps addressPublic.
+      match /private/{docId} {
+        allow read: if isAuthenticated() && docId == 'location';
+        allow create, update: if isActiveUser() && docId == 'location' && (
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
+          get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
+        );
+        allow delete: if false;
+      }
+
+      // A creator can't delete a job that already has payout/fee records: the tx docs would outlive
+      // it and the public job id could be re-created by someone else (deleteJob / tranyx_app.dart
+      // only delete Open/Cancelled jobs, which never have them).
       allow delete: if (isActiveUser() && resource.data.creatorId == request.auth.uid && (
         resource.data.status == 'Open' || 
         resource.data.status == 'open' || 
         resource.data.status == 'Cancelled' || 
         resource.data.status == 'cancelled'
-      )) || isAdminOrStaff();
+      ) && !exists(/databases/$(database)/documents/transactions/$('payout_nyx_' + jobId)) &&
+        !exists(/databases/$(database)/documents/transactions/$('fees_emp_' + jobId))) || isAdminOrStaff();
 
       // Subcollection: Applications
       match /applications/{applicantId} {
@@ -135,10 +137,11 @@
         )) || isAdminOrStaff();
       }
 
-      // Subcollection: Messages (Job chat room)
+      // Subcollection: Messages (old job chat room): the job's employer, hired worker or applicants.
+      // isChatParty on the caller's own scoped id job_<jobId>_<uid> is exactly that check.
       match /messages/{messageId} {
-        allow read: if isAuthenticated();
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if (isAuthenticated() && isChatParty('job_' + jobId + '_' + request.auth.uid, request.auth.uid)) || isAdminOrStaff();
+        allow write: if (isActiveUser() && isChatParty('job_' + jobId + '_' + request.auth.uid, request.auth.uid)) || isAdminOrStaff();
       }
 
       // Subcollection: Questions (Public Q&A)
@@ -163,29 +166,17 @@
         resource.data.workerId == request.auth.uid || 
         isAdminOrStaff()
       );
-      allow create: if isActiveUser() && (
-        request.resource.data.employerId == request.auth.uid || 
-        request.resource.data.creatorId == request.auth.uid || 
-        isAdminOrStaff()
-      );
-      allow update: if isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid || 
-        isAdminOrStaff()
-      );
-      allow delete: if (isActiveUser() && (
-        resource.data.employerId == request.auth.uid || 
-        resource.data.creatorId == request.auth.uid ||
-        (exists(/databases/$(database)/documents/jobs/$(jobId)) && 
-         get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid)
-      )) || isAdminOrStaff();
+      // Phase 4: gig escrow holds real money; only the jobAction callable (Admin SDK) and staff write it.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Escrow Holdbacks Collection
     match /escrow_holdbacks/{holdbackId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || isAdminOrStaff());
-      allow create, update: if isActiveUser() && (request.resource.data.uid == request.auth.uid || request.resource.data.employerId == request.auth.uid || isAdminOrStaff());
-      allow delete: if isAdminOrStaff();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || resource.data.employerId == request.auth.uid || resource.data.get('nyxianId', null) == request.auth.uid || isAdminOrStaff());
+      // Phase 4: holdbacks are created at completion and released by jobAction (Admin SDK); staff only from clients.
+      allow create, delete: if false;
+      allow update: if clientEscrowUpdateOk();
     }
 
     // Job Cancellation Audit Logs Collection
@@ -200,4 +191,58 @@
         isAdminOrStaff()
       );
       allow update, delete: if isAdminOrStaff();
+    }
+
+    // ------------------------------------------------------------------------
+    // RATINGS & REPORTS (KAN-145): create-only docs, one per (job, rater). Clients never touch the other
+    // user's users/{id} doc. Averages/aggregation belong to the server-side ledger work (KAN-126).
+    // ------------------------------------------------------------------------
+
+    // The two parties of a job are its creator (employer) and its accepted applicant (worker).
+    function isJobPartyPair(jobId, a, b) {
+      let j = get(/databases/$(database)/documents/jobs/$(jobId)).data;
+      let w = j.get('acceptedApplicantId', null);
+      return w != null && a != b &&
+        ((j.creatorId == a && w == b) || (j.creatorId == b && w == a));
+    }
+
+    // Rating: only for a Completed job; rater and ratee are its two parties; 1..5 int; optional comment.
+    function isValidRatingCreate(ratingId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'raterId', 'rateeId', 'rating', 'comment', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'raterId', 'rateeId', 'rating', 'createdAt']) &&
+        d.jobId is string && d.raterId == request.auth.uid && d.rateeId is string &&
+        ratingId == d.jobId + '_' + d.raterId &&
+        d.rating is int && d.rating >= 1 && d.rating <= 5 &&
+        (!('comment' in d) || (d.comment is string && d.comment.size() <= 500)) &&
+        d.createdAt == request.time &&
+        get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Completed', 'completed'] &&
+        isJobPartyPair(d.jobId, d.raterId, d.rateeId);
+    }
+
+    // Report: any job that has an assigned worker (in progress, completed, cancelled/abandoned/disputed
+    // after assignment), never an Open/Reviewing job.
+    function isValidReportCreate(reportId) {
+      let d = request.resource.data;
+      return isActiveUser() &&
+        d.keys().hasOnly(['jobId', 'reporterId', 'reportedId', 'reason', 'details', 'createdAt']) &&
+        d.keys().hasAll(['jobId', 'reporterId', 'reportedId', 'reason', 'createdAt']) &&
+        d.jobId is string && d.reporterId == request.auth.uid && d.reportedId is string &&
+        reportId == d.jobId + '_' + d.reporterId &&
+        d.reason is string && d.reason.size() >= 1 && d.reason.size() <= 100 &&
+        (!('details' in d) || (d.details is string && d.details.size() <= 1000)) &&
+        d.createdAt == request.time &&
+        !(get(/databases/$(database)/documents/jobs/$(d.jobId)).data.status in ['Open', 'open', 'Reviewing', 'reviewing']) &&
+        isJobPartyPair(d.jobId, d.reporterId, d.reportedId);
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if isAuthenticated() && (resource.data.raterId == request.auth.uid || resource.data.rateeId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidRatingCreate(ratingId);
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() && (resource.data.reporterId == request.auth.uid || resource.data.reportedId == request.auth.uid || isAdminOrStaff());
+      allow create: if isValidReportCreate(reportId);
     }

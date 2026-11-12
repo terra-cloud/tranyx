@@ -1,4 +1,4 @@
-name: Deploy Jaspr to Firebase Hosting on Merge
+name: Deploy hosting and production functions
 on:
   push:
     branches:
@@ -8,6 +8,10 @@ on:
     paths:
       - 'packages/tranyx_web/**'
       - 'packages/shared/**'
+      - 'functions/**'
+      - 'firestore.rules'
+      - 'firestore_rules/**'
+      - 'packages/tranyx_web/firestore.indexes.json'
       - '.github/workflows/jaspr-hosting-merge.yml'
 
 jobs:
@@ -21,66 +25,117 @@ jobs:
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
           filters: |
-            code:
+            web:
               - 'packages/tranyx_web/**'
               - 'packages/shared/**'
               - '.github/workflows/jaspr-hosting-merge.yml'
+            backend:
+              - 'functions/**'
+              - 'firestore.rules'
+              - 'firestore_rules/**'
+              - 'packages/tranyx_web/firestore.indexes.json'
+              - '.github/workflows/jaspr-hosting-merge.yml'
 
       - name: Setup Flutter
-        if: steps.filter.outputs.code == 'true'
+        if: steps.filter.outputs.web == 'true'
         uses: subosito/flutter-action@f2c4f6686ca8e8d6e6d0f28410eeef506ed66aff # v2.18.0
         with:
           channel: 'stable'
           cache: true
 
       - name: Install workspace dependencies
-        if: steps.filter.outputs.code == 'true'
+        if: steps.filter.outputs.web == 'true'
         run: flutter pub get
 
       - name: Install Jaspr CLI
-        if: steps.filter.outputs.code == 'true'
+        if: steps.filter.outputs.web == 'true'
         run: |
           flutter pub global activate jaspr_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
       - name: Generate Env Config
-        if: steps.filter.outputs.code == 'true'
+        if: steps.filter.outputs.web == 'true'
         run: dart run shared:generate_env
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
-          GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
-          SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
-          TREASURY_PRIVATE_KEY: ${{ secrets.TREASURY_PRIVATE_KEY }}
           TREASURY_PUBLIC_KEY: ${{ secrets.TREASURY_PUBLIC_KEY }}
           BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
 
       - name: Build Jaspr Web
-        if: steps.filter.outputs.code == 'true'
+        if: steps.filter.outputs.web == 'true'
         working-directory: packages/tranyx_web
         env:
           REF_NAME: ${{ github.ref_name }}
-          XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
-          GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
         run: |
           jaspr clean
           if [[ "$REF_NAME" == "main" ]]; then
-            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=prod --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           elif [[ "$REF_NAME" == "uat" ]]; then
-            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=uat --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           elif [[ "$REF_NAME" == "develop" ]]; then
-            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=dev --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           fi
 
+      # Production only. defineSecret reads Google Secret Manager, not GitHub.
+      # Copy the GitHub Actions secrets into tranyx-app Secret Manager, then
+      # deploy functions, rules, and indexes. Dev and UAT are not deployed here.
+      - name: Write tranyx-app deploy credentials
+        if: steps.filter.outputs.backend == 'true' && github.ref_name == 'main'
+        env:
+          FIREBASE_SERVICE_ACCOUNT_TRANYX_APP: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_TRANYX_APP" ]; then
+            echo "Missing GitHub secret FIREBASE_SERVICE_ACCOUNT_TRANYX_APP"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_TRANYX_APP" > "$RUNNER_TEMP/tranyx-app-sa.json"
+
+      - name: Sync function secrets to Secret Manager
+        if: steps.filter.outputs.backend == 'true' && github.ref_name == 'main'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/tranyx-app-sa.json
+          SOLANA_TREASURY_SECRET_KEY: ${{ secrets.SOLANA_TREASURY_SECRET_KEY }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SOLANA_TREASURY_SECRET_KEY" ] || [ -z "$IMGBB_API_KEY" ] || [ -z "$GEMINI_API_KEY" ]; then
+            echo "Missing GitHub secret SOLANA_TREASURY_SECRET_KEY, IMGBB_API_KEY, or GEMINI_AI_API_KEY"
+            exit 1
+          fi
+          printf '%s' "$SOLANA_TREASURY_SECRET_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set SOLANA_TREASURY_SECRET_KEY --data-file=- --project tranyx-app
+          printf '%s' "$IMGBB_API_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set IMGBB_API_KEY --data-file=- --project tranyx-app
+          printf '%s' "$GEMINI_API_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set GEMINI_API_KEY --data-file=- --project tranyx-app
+
+      - name: Deploy functions, rules, and indexes (prod)
+        if: steps.filter.outputs.backend == 'true' && github.ref_name == 'main'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/tranyx-app-sa.json
+        run: npx --yes firebase-tools@15.5.1 deploy --only functions,firestore:rules,firestore:indexes --project tranyx-app
+
+      # Default Hosting site of project tranyx-app, live channel.
+      # Site ID is tranyx-app. The live URLs are https://tranyx-app.web.app
+      # and https://tranyx.app (same release). Do not set `target`: the
+      # .firebaserc target tranyx-web-app is tranyx-dev, tranyx-prod, and
+      # tranyx-uat, and https://tranyx-prod.web.app is not the live site.
+      - name: Confirm production Hosting site
+        if: steps.filter.outputs.web == 'true' && github.ref_name == 'main'
+        run: |
+          python3 - << 'PY'
+          import json
+          hosting = json.load(open("firebase.json"))["hosting"]
+          if isinstance(hosting, list) or hosting.get("target") or hosting.get("site") not in (None, "tranyx-app"):
+              raise SystemExit(
+                  "Refusing deploy: firebase.json Hosting must stay the default tranyx-app site, not a multi-site target."
+              )
+          print("Production live site: https://tranyx-app.web.app and https://tranyx.app")
+          PY
+
       - name: Deploy to Firebase Hosting (prod)
-        if: steps.filter.outputs.code == 'true' && github.ref_name == 'main'
-        continue-on-error: true
+        if: steps.filter.outputs.web == 'true' && github.ref_name == 'main'
         uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb # v0.2.3
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -89,7 +144,7 @@ jobs:
           projectId: tranyx-app
 
       - name: Deploy to Firebase Hosting (uat)
-        if: steps.filter.outputs.code == 'true' && github.ref_name == 'uat'
+        if: steps.filter.outputs.web == 'true' && github.ref_name == 'uat'
         continue-on-error: true
         uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb # v0.2.3
         with:
@@ -99,7 +154,7 @@ jobs:
           channelId: live
 
       - name: Deploy to Firebase Hosting (dev)
-        if: steps.filter.outputs.code == 'true' && github.ref_name == 'develop'
+        if: steps.filter.outputs.web == 'true' && github.ref_name == 'develop'
         continue-on-error: true
         uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb # v0.2.3
         with:

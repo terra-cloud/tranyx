@@ -10,6 +10,9 @@ import 'package:tranyx_mobile/flavors.dart';
 import 'package:tranyx_mobile/core/services/trust_wallet_service.dart';
 import 'package:reown_appkit/reown_appkit.dart';
 import 'package:tranyx_mobile/core/providers/phantom_provider.dart';
+import 'package:tranyx_mobile/core/widgets/solana_logo.dart';
+import 'package:tranyx_mobile/core/services/mwa_service.dart';
+import 'package:tranyx_mobile/core/services/mwa_wallet_link.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class TrustPane extends ConsumerStatefulWidget {
@@ -652,7 +655,19 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
   Future<void> _linkSolanaWallet(String uid, String type) async {
     setState(() => _isProcessing = true);
     try {
-      if (type == 'trust') {
+      if (type == kMwaWalletType) {
+        // Android Mobile Wallet Adapter: authorize, then link the public key.
+        final auth = await ref.read(mwaServiceProvider).connect();
+        final outcome = await linkMwaWallet(
+          firestore: ref.read(firestoreProvider),
+          uid: uid,
+          publicKey: auth.publicKey,
+        );
+        if (outcome == MwaLinkOutcome.alreadyLinkedToAnotherAccount) {
+          throw 'This wallet is already linked to another account. Each wallet can only be connected to one account.';
+        }
+        ref.invalidate(userProfileProvider);
+      } else if (type == 'trust') {
         const projectId = '52cb8eaaad34baed8dbe063b454b28f6';
         final modal = await TrustWalletService.createModal(
           context: context,
@@ -662,53 +677,58 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
 
         modal.onModalConnect.subscribe((ModalConnect? event) async {
           modal.onModalConnect.unsubscribeAll();
-          final address = modal.session?.getAddress(NetworkUtils.solana);
-          if (address != null && address.isNotEmpty) {
-            // ── 1:1 guard: check if this wallet is already owned by another user ──
-            final existingDoc = await ref
-                .read(firestoreProvider)
-                .collection('walletLinks')
-                .doc(address)
-                .get();
+          try {
+            final address = modal.session?.getAddress(NetworkUtils.solana);
+            if (address != null && address.isNotEmpty) {
+              // ── 1:1 guard: check if this wallet is already owned by another user ──
+              final existingDoc = await ref
+                  .read(firestoreProvider)
+                  .collection('walletLinks')
+                  .doc(address)
+                  .get();
 
-            if (existingDoc.exists) {
-              final existingUid = existingDoc.data()?['uid'] as String?;
-              if (existingUid != null && existingUid != uid) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+              if (existingDoc.exists) {
+                final existingUid = existingDoc.data()?['uid'] as String?;
+                if (existingUid != null && existingUid != uid) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'This wallet is already linked to another account. Each wallet can only be connected to one account.',
+                        ),
+                        backgroundColor: Colors.red,
                       ),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                    );
+                  }
+                  return;
                 }
-                return;
               }
+
+              // walletLinks index + profile key in one batch: both land or neither does (KAN-124).
+              final firestore = ref.read(firestoreProvider);
+              await (firestore.batch()
+                    ..set(firestore.collection('walletLinks').doc(address), {
+                      'uid': uid,
+                      'linkedAt': DateTime.now().millisecondsSinceEpoch,
+                    })
+                    ..update(firestore.collection('users').doc(uid), {
+                      'walletPublicKey': address,
+                      'connectedWalletType': 'trust',
+                    }))
+                  .commit();
+
+              ref.invalidate(userProfileProvider);
             }
-
-            await ref
-                .read(firestoreProvider)
-                .collection('users')
-                .doc(uid)
-                .update({
-                  'walletPublicKey': address,
-                  'connectedWalletType': 'trust',
-                });
-
-            await ref
-                .read(firestoreProvider)
-                .collection('walletLinks')
-                .doc(address)
-                .set({
-                  'uid': uid,
-                  'email': FirebaseAuth.instance.currentUser?.email,
-                  'provider': 'password',
-                  'linkedAt': DateTime.now().millisecondsSinceEpoch,
-                });
-
-            ref.invalidate(userProfileProvider);
+          } catch (e) {
+            // This callback runs after _linkSolanaWallet returned, so its catch can't see errors.
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to connect wallet: $e'),
+                  backgroundColor: AppColors.red,
+                ),
+              );
+            }
           }
         });
       } else {
@@ -839,15 +859,7 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
 
           Row(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.asset(
-                  'assets/icons/solana.webp',
-                  width: 22,
-                  height: 22,
-                  fit: BoxFit.contain,
-                ),
-              ),
+              const SolanaLogo(size: 22),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -917,6 +929,11 @@ class _TrustPaneState extends ConsumerState<TrustPane> {
                           'Trust',
                           () => _linkSolanaWallet(userProfile.uid, 'trust'),
                         ),
+                        if (ref.read(mwaServiceProvider).isSupported)
+                          _buildWalletLinkBtn(
+                            'MWA',
+                            () => _linkSolanaWallet(userProfile.uid, kMwaWalletType),
+                          ),
                       ],
                     ),
             ],

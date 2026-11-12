@@ -1,16 +1,18 @@
 import 'env.g.dart';
 
 class Env {
+  // KAN-146: there is intentionally NO private/treasury secret key here. Withdrawals are signed by
+  // the `requestWithdrawal` Cloud Function with a key held only in Secret Manager.
+
   /// Known compile-time environment variables.
+  /// IMGBB and Gemini are read only by the mobile getters below. They are not in [get],
+  /// because the web app calls [get] for public Solana values and that switch is compiled
+  /// into the public bundle. Web image upload and web AI go through Cloud Functions.
   static const String _imgbbApiKey = String.fromEnvironment('IMGBB_API_KEY');
   static const String _basemapsApiKey = String.fromEnvironment('BASEMAPS_API_KEY');
-  static const String _cloudflareAccountId = String.fromEnvironment('CLOUDFLARE_ACCOUNT_ID');
-  static const String _cloudflareApiToken = String.fromEnvironment('CLOUDFLARE_API_TOKEN');
   static const String _geminiApiKey = String.fromEnvironment('GEMINI_AI_API_KEY');
-  static const String _solanaPrivateKey = String.fromEnvironment('SOLANA_PRIVATE_KEY');
   static const String _solanaPublicKey = String.fromEnvironment('SOLANA_PUBLIC_KEY');
   static const String _solanaRpcUrl = String.fromEnvironment('SOLANA_RPC_URL');
-  static const String _treasuryPrivateKey = String.fromEnvironment('TREASURY_PRIVATE_KEY');
   static const String _treasuryPublicKey = String.fromEnvironment('TREASURY_PUBLIC_KEY');
   static const String _env = String.fromEnvironment('ENV', defaultValue: 'dev');
   static const String _flavor = String.fromEnvironment('FLAVOR');
@@ -20,16 +22,10 @@ class Env {
   /// and finally falls back to [defaultValue].
   static String get(String key, {String defaultValue = ''}) {
     final fromConst = switch (key) {
-      'GEMINI_AI_API_KEY' => _geminiApiKey,
-      'SOLANA_PRIVATE_KEY' => _solanaPrivateKey,
       'SOLANA_PUBLIC_KEY' => _solanaPublicKey,
       'SOLANA_RPC_URL' => _solanaRpcUrl,
-      'TREASURY_PRIVATE_KEY' => _treasuryPrivateKey,
       'TREASURY_PUBLIC_KEY' => _treasuryPublicKey,
-      'IMGBB_API_KEY' => _imgbbApiKey,
       'BASEMAPS_API_KEY' => _basemapsApiKey,
-      'CLOUDFLARE_ACCOUNT_ID' => _cloudflareAccountId,
-      'CLOUDFLARE_API_TOKEN' => _cloudflareApiToken,
       'ENV' => _env,
       'FLAVOR' => _flavor,
       _ => '',
@@ -46,18 +42,15 @@ class Env {
     return defaultValue;
   }
 
-  static String get geminiApiKey => get('GEMINI_AI_API_KEY');
-  static String get solanaPrivateKey =>
-      get('SOLANA_PRIVATE_KEY', defaultValue: get('TREASURY_PRIVATE_KEY'));
+  static String get geminiApiKey => _geminiApiKey;
   static String get solanaPublicKey =>
       get('SOLANA_PUBLIC_KEY', defaultValue: get('TREASURY_PUBLIC_KEY'));
   static String get solanaRpcUrl => get('SOLANA_RPC_URL');
-  static String get treasuryPrivateKey => solanaPrivateKey;
   static String get treasuryPublicKey => solanaPublicKey;
-  static String get imgbbApiKey => get('IMGBB_API_KEY');
+  static String get imgbbApiKey => _imgbbApiKey;
   static String get basemapsApiKey => get('BASEMAPS_API_KEY');
-  static String get cloudflareAccountId => get('CLOUDFLARE_ACCOUNT_ID');
-  static String get cloudflareApiToken => get('CLOUDFLARE_API_TOKEN');
+  static String get cloudflareAccountId => '';
+  static String get cloudflareApiToken => '';
   static String get env => get('ENV', defaultValue: 'dev');
   static String get flavor => get('FLAVOR');
 }

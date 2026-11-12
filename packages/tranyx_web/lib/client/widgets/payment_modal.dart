@@ -27,10 +27,13 @@ class PaymentModalComponent extends StatelessComponent {
     final isGcash = s.selectedP2pMethod == 'GCash';
 
     return div(
-      classes: 'fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/80 backdrop-blur-md px-4',
+      classes: 'rw-page animate-fade-in space-y-4',
       [
+        // W61: page chrome
+        h1(classes: 'm-0 text-[28px] md:text-[32px] font-bold max-w-xl mx-auto ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [Component.text('Wallet · Top-up')]),
+        p(classes: 'm-0 text-sm max-w-xl mx-auto ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [Component.text('Add Tyxbit via P2P GCash/Maya or Solana.')]),
         div(
-          classes: 'w-full max-w-md rounded-3xl border $modalBg overflow-hidden animate-fade-up',
+          classes: 'rw-wizard rw-wizard-page w-full max-w-xl mx-auto rounded-3xl border $modalBg overflow-hidden',
           [
             // Header
             div(classes: 'p-6 text-center border-b ${isDark ? "border-zinc-800" : "border-zinc-100"}', [
@@ -106,7 +109,7 @@ class PaymentModalComponent extends StatelessComponent {
                       '${!isP2p ? "bg-[#512da8] text-white shadow" : (isDark ? "text-zinc-400 hover:text-zinc-200" : "text-zinc-600 hover:text-zinc-800")}',
                   events: {'click': (_) => s.setState(() => s.selectedDepositRail = 'solana')},
                   [
-                    lIcon('coins', cls: 'w-4 h-4'),
+                    solanaLogo(cls: 'w-4 h-4'),
                     Component.text('Solana (SOL/USDT)'),
                   ],
                 ),
@@ -704,7 +707,7 @@ class PaymentModalComponent extends StatelessComponent {
                       div(classes: 'flex items-center gap-3 min-w-0', [
                         div(
                           classes: 'w-9 h-9 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0',
-                          [lIcon('wallet', cls: 'w-4 h-4')],
+                          [solanaLogo(cls: 'w-5 h-5')],
                         ),
                         div(classes: 'min-w-0 text-left', [
                           div(classes: 'flex items-center gap-1.5', [

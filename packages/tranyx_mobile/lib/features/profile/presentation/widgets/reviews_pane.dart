@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
@@ -9,13 +10,32 @@ import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 final userReviewsProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>((ref, uid) async {
       final firestore = ref.watch(firestoreProvider);
-      final snapshot = await firestore
+      final legacy = await firestore
           .collection('users')
           .doc(uid)
           .collection('reviews')
           .orderBy('timestamp', descending: true)
           .get();
-      return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+      // Ratings received (ratings/{jobId}_{raterUid}, KAN-145), shaped like the legacy review docs.
+      final received = await firestore
+          .collection('ratings')
+          .where('rateeId', isEqualTo: uid)
+          .get();
+      final all = [
+        ...legacy.docs.map((doc) => {...doc.data(), 'id': doc.id}),
+        ...received.docs.map((doc) {
+          final d = doc.data();
+          return {
+            'id': doc.id,
+            'score': d['rating'],
+            'comment': d['comment'],
+            'timestamp': (d['createdAt'] as Timestamp?)?.millisecondsSinceEpoch,
+          };
+        }),
+      ];
+      all.sort((a, b) =>
+          ((b['timestamp'] as int?) ?? 0).compareTo((a['timestamp'] as int?) ?? 0));
+      return all;
     });
 
 class ReviewsPane extends ConsumerStatefulWidget {

@@ -2,7 +2,7 @@
 // This generates a brand-new Solana keypair you can use as your treasury wallet.
 // The output gives you:
 //   - Public Key  → put this in kSystemSolanaReceiverAddress in payment_pane.dart
-//   - Private Key → put this ONLY in Firestore systemConfig/treasury.privateKeyBase58
+//   - Private Key → KAN-146: set it ONLY via `firebase functions:secrets:set SOLANA_TREASURY_SECRET_KEY` (Secret Manager). Never Firestore, CI or client code.
 
 
 // Pure Dart Ed25519 key generation using the dart:math CSPRNG.
@@ -31,7 +31,7 @@ console.log('Public Key  :', pubKey);
 console.log('Private Key (Base58, 64 bytes):', privKeyBase58);
 console.log('');
 console.log('→ Put the Public Key  in kSystemSolanaReceiverAddress in payment_pane.dart');
-console.log('→ Put the Private Key ONLY in Firestore: systemConfig/treasury.privateKeyBase58');
+console.log('→ Put the Private Key ONLY in Secret Manager: firebase functions:secrets:set SOLANA_TREASURY_SECRET_KEY');
 "
 ''');
 }

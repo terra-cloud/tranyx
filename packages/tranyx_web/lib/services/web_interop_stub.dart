@@ -14,6 +14,12 @@ class SessionStorage {
   static bool get hasSession => false;
   static String? get activeTab => null;
   static set activeTab(String? val) {}
+  static String? get walkthroughFor => null;
+  static set walkthroughFor(String? email) {}
+  static String? get hybridMode => null;
+  static set hybridMode(String? val) {}
+  static String? get themePreference => null;
+  static set themePreference(String? val) {}
   static void clear() {}
   static void updateIdToken(String token) {}
 
@@ -44,6 +50,12 @@ class WebFile {
 
 Future<List<WebFile>> readFilesFromEvent(dynamic event) async => [];
 
+String lastWalletError = '';
+const walletAppRedirect = 'WALLET_APP_REDIRECT';
+String describeWalletError(Object e) => e.toString();
+({String wallet, String action})? consumeWalletLaunchIntent() => null;
+bool isMobileBrowser() => false;
+Future<void> signInWithCustomTokenJs(Map<String, String> config, String customToken) async {}
 Future<String?> connectSolanaWallet(String type) async => null;
 Future<String?> getSolanaPublicKeyIfConnected(String type) async => null;
 Future<void> disconnectSolanaWallet(String type) async {}
@@ -69,17 +81,8 @@ Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double a
 
 Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async => null;
 Future<String?> signSolanaMessage(String fromAddress, String message) async => null;
-Future<String?> broadcastTreasuryTransfer({
-  required String treasuryPrivKeyBase58,
-  required String recipientPubkey,
-  required int lamports,
-}) async => null;
-Future<String?> broadcastTreasuryTokenTransfer({
-  required String treasuryPrivKeyBase58,
-  required String recipientPubkey,
-  required double amountInUsdt,
-  String? usdtMint,
-}) async => null;
+/// App Check token for callable requests (null when no site key is configured).
+Future<String?> getAppCheckTokenJs(Map<String, String> config, String siteKey) async => null;
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 Future<String?> linkGoogleAccountJs(Map<String, String> config) async => null;
@@ -121,7 +124,6 @@ String sendChatMessageJs(
   String? category,
 }) => 'ok';
 void createAdminBanTicketJs(String userId, String userName, String chatId, String offendingText, String violationType) {}
-Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async => null;
 
 // Job Details stubs
 void listenToJobDetailsJs(String jobId, void Function(String) callback) {}
@@ -181,4 +183,10 @@ Future<Map<String, dynamic>?> renderPdfPageJs(
   double scale,
 ) async => null;
 
+void openPdfInNewTabJs(String pdfSource) {}
+
+int windowInnerWidth() => 1280;
+
 void downloadPdfFileJs(String pdfSource, String fileName) {}
+
+void downloadTextFile(String fileName, String content, {String mime = 'text/csv'}) {}

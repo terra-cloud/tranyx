@@ -168,10 +168,10 @@ class _KycIdModalState extends State<KycIdModalComponent> {
     final needsBack = _idType != "Philippine Passport";
 
     return div(
-      classes: 'fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto',
+      classes: 'rw-overlay fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto',
       [
         div(
-          classes: 'w-full max-w-xl rounded-3xl border shadow-2xl flex flex-col my-8 animate-scale-up $bgCls',
+          classes: 'rw-wizard w-full max-w-xl rounded-3xl border shadow-2xl flex flex-col my-8 animate-scale-up $bgCls',
           [
             // Header
             div(

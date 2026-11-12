@@ -230,12 +230,17 @@ class _RentalTrackerMapState extends State<RentalTrackerMapComponent> {
     final List<NavWaypoint> stops = _buildStops(r, status);
 
     return div(
-      classes:
-          'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in',
+      classes: 'rw-page animate-fade-in space-y-4',
       [
+        div(classes: 'max-w-4xl mx-auto', [
+          h1(classes: 'm-0 text-[28px] md:text-[32px] font-bold ${isDark ? "text-zinc-50" : "text-[#18181b]"}', [Component.text('Tracker & extend')]),
+          p(classes: 'm-0 mt-1 text-[15px] ${isDark ? "text-zinc-400" : "text-[#52525b]"}', [
+            Component.text('Use return trip for vehicles · extend presets for active rentals.'),
+          ]),
+        ]),
         div(
           classes:
-              'w-full max-w-4xl h-[88vh] rounded-3xl shadow-2xl relative flex flex-col overflow-hidden ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
+              'w-full max-w-4xl mx-auto h-[calc(100vh-220px)] min-h-[560px] rounded-3xl relative flex flex-col overflow-hidden border ${isDark ? "bg-zinc-900 border border-zinc-800" : "bg-white"}',
           [
             // Header Bar
             div(

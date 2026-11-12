@@ -23,13 +23,62 @@ void initRandomMetaballs(String containerId) {
 
 // ── Solana Wallet ────────────────────────────────────────────────────────────
 
+/// Why the last wallet call failed (user-facing text); empty after a success. `walletAppRedirect`
+/// means the browser is being sent to the wallet app (mobile deep link): not an error to show.
+String lastWalletError = '';
+const walletAppRedirect = 'WALLET_APP_REDIRECT';
+
+String describeWalletError(Object e) {
+  final raw = e.toString();
+  if (raw.contains(walletAppRedirect)) return walletAppRedirect;
+  final lower = raw.toLowerCase();
+  if (lower.contains('user rejected') || lower.contains('rejected the request') || lower.contains('4001') || lower.contains('declined') || lower.contains('denied')) {
+    return 'You declined the request in your wallet.';
+  }
+  final cleaned = raw.replaceFirst(RegExp(r'^(Exception:\s*|Error:\s*|JavaScriptError:\s*)+'), '').trim();
+  return cleaned.isEmpty ? 'The wallet did not respond.' : cleaned;
+}
+
 Future<String?> connectSolanaWallet(String type) async {
+  lastWalletError = '';
   try {
     final res = await web.window.callMethod<JSPromise>('connectSolanaWallet'.toJS, type.toJS).toDart;
     return (res as JSString).toDart;
+  } catch (e) {
+    lastWalletError = describeWalletError(e);
+    return null;
+  }
+}
+
+/// Wallet + action when this page was opened from a wallet app's in-app browser link
+/// (`?wallet=phantom&walletAction=signin`), consumed once. null when there is none.
+({String wallet, String action})? consumeWalletLaunchIntent() {
+  try {
+    final res = web.window.callMethod<JSAny?>('consumeWalletLaunchIntent'.toJS);
+    if (res == null) return null;
+    final m = jsonDecode((res as JSString).toDart) as Map<String, dynamic>;
+    return (wallet: m['wallet'] as String, action: m['action'] as String);
   } catch (_) {
     return null;
   }
+}
+
+bool isMobileBrowser() {
+  try {
+    return web.window.callMethod<JSBoolean>('isMobileBrowser'.toJS).toDart;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<void> signInWithCustomTokenJs(Map<String, String> config, String customToken) async {
+  try {
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    await web.window.callMethod<JSPromise>('signInWithCustomTokenJs'.toJS, jsConfig, customToken.toJS).toDart;
+  } catch (_) {}
 }
 
 Future<String?> getSolanaPublicKeyIfConnected(String type) async {
@@ -549,54 +598,21 @@ Future<String?> signSolanaMessage(String fromAddress, String message) async {
   }
 }
 
-Future<String?> broadcastTreasuryTransfer({
-  required String treasuryPrivKeyBase58,
-  required String recipientPubkey,
-  required int lamports,
-}) async {
+/// App Check (reCAPTCHA) token for callable requests. Returns null when [siteKey] is empty or
+/// App Check cannot be initialised; the server then rejects the call if enforcement is on.
+Future<String?> getAppCheckTokenJs(Map<String, String> config, String siteKey) async {
+  if (siteKey.isEmpty) return null;
   try {
-    final rpcUrl = getSolanaRpcUrl();
-    final promise = web.window.callMethodVarArgs(
-      'broadcastTreasuryTransfer'.toJS,
-      [
-        treasuryPrivKeyBase58.toJS,
-        recipientPubkey.toJS,
-        lamports.toJS,
-        rpcUrl.toJS,
-      ],
-    ) as JSPromise;
+    final jsConfig = JSObject();
+    for (final e in config.entries) {
+      jsConfig.setProperty(e.key.toJS, e.value.toJS);
+    }
+    final promise = web.window.callMethodVarArgs('getAppCheckToken'.toJS, [jsConfig, siteKey.toJS]) as JSPromise?;
+    if (promise == null) return null;
     final res = await promise.toDart;
-    return (res as JSString).toDart;
-  } catch (e) {
-    print("broadcastTreasuryTransfer exception: $e");
-    rethrow;
-  }
-}
-
-Future<String?> broadcastTreasuryTokenTransfer({
-  required String treasuryPrivKeyBase58,
-  required String recipientPubkey,
-  required double amountInUsdt,
-  String? usdtMint,
-}) async {
-  try {
-    final rpcUrl = getSolanaRpcUrl();
-    final mint = usdtMint ?? getUsdtMintAddress();
-    final promise = web.window.callMethodVarArgs(
-      'broadcastTreasuryTokenTransfer'.toJS,
-      [
-        treasuryPrivKeyBase58.toJS,
-        recipientPubkey.toJS,
-        amountInUsdt.toJS,
-        rpcUrl.toJS,
-        mint.toJS,
-      ],
-    ) as JSPromise;
-    final res = await promise.toDart;
-    return (res as JSString).toDart;
-  } catch (e) {
-    print("broadcastTreasuryTokenTransfer exception: $e");
-    rethrow;
+    return res == null ? null : (res as JSString).toDart;
+  } catch (_) {
+    return null;
   }
 }
 
@@ -620,6 +636,9 @@ class SessionStorage {
   static const _locationBuffer = 'tranyx_offline_location_buffer';
 
   static const _activeTabKey = 'tranyx_active_tab';
+
+  /// Explicit theme: 'light' | 'dark'. Null / missing = follow OS.
+  static const _themePrefKey = 'tranyx_theme_preference';
 
   static void save(dynamic auth) {
     web.window.localStorage.setItem(_uid, auth.uid as String);
@@ -666,6 +685,49 @@ class SessionStorage {
       web.window.localStorage.setItem(_activeTabKey, val);
     } else {
       web.window.localStorage.removeItem(_activeTabKey);
+    }
+  }
+
+  /// Stored explicit theme preference: `'light'`, `'dark'`, or `null` (system).
+  static String? get themePreference {
+    final v = web.window.localStorage.getItem(_themePrefKey);
+    if (v == 'light' || v == 'dark') return v;
+    return null;
+  }
+
+  static set themePreference(String? val) {
+    if (val == 'light' || val == 'dark') {
+      web.window.localStorage.setItem(_themePrefKey, val!);
+    } else {
+      web.window.localStorage.removeItem(_themePrefKey);
+    }
+  }
+
+  static const _hybridModeKey = 'tranyx_hybrid_mode';
+  static const _walkthroughForKey = 'tranyx_walkthrough_for';
+
+  /// Email (lowercase) that just registered and has not yet seen the first-login walkthrough. Survives reloads.
+  static String? get walkthroughFor => web.window.localStorage.getItem(_walkthroughForKey);
+
+  static set walkthroughFor(String? email) {
+    if (email == null || email.isEmpty) {
+      web.window.localStorage.removeItem(_walkthroughForKey);
+    } else {
+      web.window.localStorage.setItem(_walkthroughForKey, email.toLowerCase());
+    }
+  }
+
+  /// Last Hybrid PRO mode used on this device: 'employer' | 'nyxian' | null.
+  static String? get hybridMode {
+    final v = web.window.localStorage.getItem(_hybridModeKey);
+    return (v == 'employer' || v == 'nyxian') ? v : null;
+  }
+
+  static set hybridMode(String? val) {
+    if (val == 'employer' || val == 'nyxian') {
+      web.window.localStorage.setItem(_hybridModeKey, val!);
+    } else {
+      web.window.localStorage.removeItem(_hybridModeKey);
     }
   }
 
@@ -971,23 +1033,6 @@ void createAdminBanTicketJs(String userId, String userName, String chatId, Strin
       ticketObj,
     );
   } catch (_) {}
-}
-
-Future<String?> uploadChatPhotoJs(String chatId, String base64Data, String mimeType) async {
-  try {
-    final result = await web.window
-        .callMethod<JSPromise>(
-          'uploadChatPhoto'.toJS,
-          chatId.toJS,
-          base64Data.toJS,
-          mimeType.toJS,
-        )
-        .toDart;
-    if (result == null) return null;
-    return (result as JSString).toDart;
-  } catch (_) {
-    return null;
-  }
 }
 
 JSFunction? _jobDetailsUnsub;
@@ -1404,6 +1449,14 @@ Future<Map<String, dynamic>?> renderPdfPageJs(
   return null;
 }
 
+void openPdfInNewTabJs(String pdfSource) {
+  try {
+    web.window.callMethod('openPdfInNewTab'.toJS, pdfSource.toJS);
+  } catch (_) {}
+}
+
+int windowInnerWidth() => web.window.innerWidth;
+
 void downloadPdfFileJs(String pdfSource, String fileName) {
   try {
     web.window.callMethod(
@@ -1411,5 +1464,15 @@ void downloadPdfFileJs(String pdfSource, String fileName) {
       pdfSource.toJS,
       fileName.toJS,
     );
+  } catch (_) {}
+}
+
+/// Saves [content] as a text file via a temporary data-URL link (used by W58 Export CSV).
+void downloadTextFile(String fileName, String content, {String mime = 'text/csv'}) {
+  try {
+    final a = web.document.createElement('a') as web.HTMLAnchorElement;
+    a.href = 'data:$mime;charset=utf-8,${Uri.encodeComponent(content)}';
+    a.download = fileName;
+    a.click();
   } catch (_) {}
 }

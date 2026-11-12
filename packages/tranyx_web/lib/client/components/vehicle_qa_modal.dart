@@ -80,8 +80,8 @@ class _VehicleQaModalState extends State<VehicleQaModalComponent> {
     final textCls = isDark ? 'text-white' : 'text-zinc-900';
     final subTextCls = isDark ? 'text-zinc-400' : 'text-zinc-500';
 
-    return div(classes: 'fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm', [
-      div(classes: 'w-full max-w-3xl max-h-[85vh] rounded-3xl border shadow-2xl flex flex-col animate-scale-up $bgCls', [
+    return div(classes: 'rw-overlay fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm', [
+      div(classes: 'rw-wizard w-full max-w-3xl max-h-[85vh] rounded-3xl border shadow-2xl flex flex-col animate-scale-up $bgCls', [
         // Header
         div(
           classes: 'p-6 border-b flex items-center justify-between ${isDark ? "border-zinc-800" : "border-zinc-100"}',
