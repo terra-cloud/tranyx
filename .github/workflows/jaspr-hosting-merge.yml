@@ -57,11 +57,6 @@ jobs:
         if: steps.filter.outputs.web == 'true'
         run: dart run shared:generate_env
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
-          GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
           TREASURY_PUBLIC_KEY: ${{ secrets.TREASURY_PUBLIC_KEY }}
           BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
@@ -71,19 +66,16 @@ jobs:
         working-directory: packages/tranyx_web
         env:
           REF_NAME: ${{ github.ref_name }}
-          XENDIT_SECRET_KEY: ${{ secrets.XENDIT_SECRET_KEY }}
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           BASEMAPS_API_KEY: ${{ secrets.BASEMAPS_API_KEY }}
-          GEMINI_AI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
           SOLANA_PUBLIC_KEY: ${{ secrets.SOLANA_PUBLIC_KEY }}
         run: |
           jaspr clean
           if [[ "$REF_NAME" == "main" ]]; then
-            jaspr build --dart-define=ENV=prod --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=prod --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           elif [[ "$REF_NAME" == "uat" ]]; then
-            jaspr build --dart-define=ENV=uat --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=uat --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           elif [[ "$REF_NAME" == "develop" ]]; then
-            jaspr build --dart-define=ENV=dev --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
+            jaspr build --dart-define=ENV=dev --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
           fi
 
       # Production only. defineSecret reads Google Secret Manager, not GitHub.
@@ -107,14 +99,16 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/tranyx-app-sa.json
           SOLANA_TREASURY_SECRET_KEY: ${{ secrets.SOLANA_TREASURY_SECRET_KEY }}
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "$SOLANA_TREASURY_SECRET_KEY" ] || [ -z "$IMGBB_API_KEY" ]; then
-            echo "Missing GitHub secret SOLANA_TREASURY_SECRET_KEY or IMGBB_API_KEY"
+          if [ -z "$SOLANA_TREASURY_SECRET_KEY" ] || [ -z "$IMGBB_API_KEY" ] || [ -z "$GEMINI_API_KEY" ]; then
+            echo "Missing GitHub secret SOLANA_TREASURY_SECRET_KEY, IMGBB_API_KEY, or GEMINI_AI_API_KEY"
             exit 1
           fi
           printf '%s' "$SOLANA_TREASURY_SECRET_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set SOLANA_TREASURY_SECRET_KEY --data-file=- --project tranyx-app
           printf '%s' "$IMGBB_API_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set IMGBB_API_KEY --data-file=- --project tranyx-app
+          printf '%s' "$GEMINI_API_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set GEMINI_API_KEY --data-file=- --project tranyx-app
 
       - name: Deploy functions, rules, and indexes (prod)
         if: steps.filter.outputs.backend == 'true' && github.ref_name == 'main'

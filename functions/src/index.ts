@@ -12,6 +12,7 @@ import { Web3SolanaPayer } from './solana';
 import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
 import { issueNonce, walletLink, walletSignIn, walletStatus, type WalletAuthDeps } from './wallet_auth';
 import { uploadImage, type FetchLike } from './image_upload';
+import { runGeminiAssist } from './gemini';
 import { subscribeWithBalance as runSubscribe } from './subscribe';
 import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
 import { jobAction as runJobAction } from './jobs';
@@ -188,6 +189,22 @@ export const walletAuthStatus = onCall(walletOpts, (req) =>
 // ── Image upload proxy (see image_upload.ts) ────────────────────────────────────────────────────
 /** Secret Manager: `firebase functions:secrets:set IMGBB_API_KEY` per project. Not committed, never logged. */
 const IMGBB_API_KEY = defineSecret('IMGBB_API_KEY');
+/** Secret Manager: `firebase functions:secrets:set GEMINI_API_KEY` per project. The web bundle must not contain it. */
+const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
+
+/** Signed-in web AI. The key is read from Secret Manager and is not returned to the client. */
+export const geminiAssist = onCall(
+  { enforceAppCheck: ENFORCE_APP_CHECK, secrets: [GEMINI_API_KEY], timeoutSeconds: 30, maxInstances: 10, memory: '256MiB' },
+  async (req) => {
+    try {
+      return await runGeminiAssist(req.auth?.uid, req.data, { apiKey: GEMINI_API_KEY.value(), fetchFn: fetch });
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('geminiAssist failed', { detail: (e instanceof Error ? e.message : String(e)).replace(/https?:\/\/\S+/gi, '[url]').slice(0, 200) });
+      throw new HttpsError('internal', 'The assistant could not answer.');
+    }
+  },
+);
 
 /** Signed-in users upload a base64 image; the function posts it to imgbb server-side and returns { url }. */
 export const uploadImageProxy = onCall(
