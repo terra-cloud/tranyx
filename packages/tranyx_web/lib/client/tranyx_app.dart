@@ -31,6 +31,7 @@ import '../client/views/profile_view.dart';
 import '../client/widgets/sidebar.dart';
 import '../client/widgets/bottom_nav.dart';
 import '../client/widgets/chat_widget.dart';
+import '../client/widgets/nyx_help_panel.dart';
 import '../client/widgets/top_header.dart';
 import '../components/search_and_breakdown_rules.dart';
 import '../client/widgets/category_modal.dart';
@@ -8783,6 +8784,8 @@ class TranyxAppState extends State<TranyxApp> {
 
         // Mobile bottom nav
         if (!isCurrentJobTrackingActive) BottomNavComponent(state: this),
+
+        if (!isCurrentJobTrackingActive) const NyxHelpPanel(),
 
         // Powered by Terra logo badge in bottom right corner
         if (!isCurrentJobTrackingActive)

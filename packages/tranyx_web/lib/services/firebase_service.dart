@@ -10,6 +10,7 @@ import 'package:meta/meta.dart';
 
 import 'package:shared/shared.dart';
 import '../client/utils/listing_privacy.dart';
+import 'tranyx_firebase_ai.dart';
 import 'web_interop.dart';
 
 // ── Environment Configuration ────────────────────────────────────────────────
@@ -60,6 +61,9 @@ const String kProdRecaptchaEnterpriseSiteKey = '6LcSphouAAAAAHFEBkUyC0F8wK01xo3F
 const String _appCheckSiteKey = String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod'
     ? kProdRecaptchaEnterpriseSiteKey
     : '';
+
+/// Site key sent with Firebase AI Logic. Empty outside production.
+String get tranyxAppCheckSiteKey => _appCheckSiteKey;
 
 /// Reads dart-define ENV (dev | uat | prod) and returns the matching Firebase config.
 /// Default: dev
@@ -6333,17 +6337,24 @@ class GeminiService {
     return res['text'] as String? ?? '';
   }
 
+  /// Help chat. Account fields on [appContext] are ignored: Nyx cannot see user data.
+  /// Job drafting still uses [geminiAssist]. This path uses Firebase AI Logic.
   Future<String> askSupportQuestion(
     List<Map<String, String>> conversationHistory, {
     TranyxAIUserContext? appContext,
   }) async {
     if (conversationHistory.isEmpty) return 'Please ask a valid question.';
-    final res = await _assist({
-      'action': 'askSupportQuestion',
-      'history': conversationHistory,
-      'context': {'summary': appContext?.buildContextBlock() ?? ''},
-    });
-    return res['text'] as String? ?? '';
+    identical(appContext, null);
+    final last = conversationHistory.last['content'] ?? '';
+    final earlier = conversationHistory.length <= 1
+        ? const <Map<String, String>>[]
+        : conversationHistory.sublist(0, conversationHistory.length - 1);
+    return TranyxFirebaseAi().reply(
+      message: last,
+      history: earlier,
+      signedIn: idToken != null && idToken!.isNotEmpty,
+      idToken: idToken,
+    );
   }
 }
 
