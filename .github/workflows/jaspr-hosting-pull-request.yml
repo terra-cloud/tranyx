@@ -30,6 +30,8 @@ jobs:
         if: steps.filter.outputs.code == 'true'
         uses: subosito/flutter-action@f2c4f6686ca8e8d6e6d0f28410eeef506ed66aff # v2.18.0
         with:
+          # Same pin as the production workflow. Stable 3.50 cannot solve this workspace.
+          flutter-version: '3.47.9'
           channel: 'stable'
           cache: true
 
@@ -40,7 +42,7 @@ jobs:
       - name: Install Jaspr CLI
         if: steps.filter.outputs.code == 'true'
         run: |
-          flutter pub global activate jaspr_cli
+          flutter pub global activate jaspr_cli 0.23.5
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
       - name: Generate Env Config
