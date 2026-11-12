@@ -40,6 +40,9 @@ jobs:
         if: steps.filter.outputs.web == 'true'
         uses: subosito/flutter-action@f2c4f6686ca8e8d6e6d0f28410eeef506ed66aff # v2.18.0
         with:
+          # Stable 3.50 (Dart 3.14) cannot solve jaspr_builder 0.23 with
+          # build_web_compilers. 3.47.9 is Dart 3.13.7, which matches the lockfile.
+          flutter-version: '3.47.9'
           channel: 'stable'
           cache: true
 
@@ -50,7 +53,7 @@ jobs:
       - name: Install Jaspr CLI
         if: steps.filter.outputs.web == 'true'
         run: |
-          flutter pub global activate jaspr_cli
+          flutter pub global activate jaspr_cli 0.23.5
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
       - name: Generate Env Config
