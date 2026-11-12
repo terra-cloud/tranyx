@@ -6262,40 +6262,75 @@ class FirestoreService {
 
 // ── Gemini AI Service ─────────────────────────────────────────────────────────
 class GeminiService {
-  final TranyxAIService _aiService;
+  final String? idToken;
   final Future<String?> Function()? onTokenRefresh;
 
-  GeminiService(FirebaseConfig config, {String? idToken, this.onTokenRefresh, TranyxAIService? aiService})
-      : _aiService = aiService ?? TranyxAIService();
+  GeminiService(FirebaseConfig config, {this.idToken, this.onTokenRefresh});
+
+  Future<Map<String, dynamic>> _assist(Map<String, dynamic> data) {
+    return FirestoreService(idToken, onTokenRefresh).callCloudFunction('geminiAssist', data);
+  }
 
   Future<String> generateJobDescription(String title, {String? categoryLabel}) async {
     if (title.isEmpty) return '';
-    return _aiService.generateJobDescription(title, categoryLabel: categoryLabel);
+    if (categoryLabel != null &&
+        categoryLabel.trim().isNotEmpty &&
+        TranyxAIService.isCategoryMismatch(title, categoryLabel)) {
+      throw CategoryMismatchException(
+        message:
+            'Category Mismatch: The job title "$title" does not match the selected category "$categoryLabel". Please select the correct category or update your job title.',
+        title: title,
+        categoryLabel: categoryLabel,
+      );
+    }
+    final res = await _assist({
+      'action': 'generateJobDescription',
+      'title': title,
+      'categoryLabel': categoryLabel,
+    });
+    if (res['mismatch'] == true) {
+      throw CategoryMismatchException(
+        message: res['message'] as String? ?? 'Category mismatch.',
+        title: title,
+        categoryLabel: categoryLabel ?? '',
+      );
+    }
+    return res['text'] as String? ?? '';
   }
 
   Future<String> generateJobTitle(String categoryLabel, String categoryDesc, String description) async {
-    final matchedCategory = JobCategory.values.firstWhere(
-      (c) => c.label.toLowerCase() == categoryLabel.toLowerCase(),
-      orElse: () => JobCategory.others,
-    );
-    return _aiService.generateJobTitle(matchedCategory, description);
+    final res = await _assist({
+      'action': 'generateJobTitle',
+      'categoryLabel': categoryLabel,
+      'description': description.isEmpty ? categoryDesc : description,
+    });
+    return res['text'] as String? ?? '';
   }
 
   Future<String> evaluateJobAuthenticity(Map<String, dynamic> jobData) async {
-    return _aiService.evaluateJobAuthenticity(jobData);
+    final res = await _assist({'action': 'evaluateJobAuthenticity', 'job': jobData});
+    return res['text'] as String? ?? '';
   }
 
   Future<bool> validateJobTitle(String title, String categoryLabel) async {
-    final matchedCategory = JobCategory.values.firstWhere(
-      (c) => c.label.toLowerCase() == categoryLabel.toLowerCase(),
-      orElse: () => JobCategory.others,
-    );
-    return _aiService.validateJobTitle(title, matchedCategory);
+    final res = await _assist({
+      'action': 'validateJobTitle',
+      'title': title,
+      'categoryLabel': categoryLabel,
+    });
+    final text = res['text'];
+    if (text is bool) return text;
+    return text == true || text == 'true';
   }
 
   Future<String> generateCoverNote(String jobTitle, {String? workerExperience}) async {
     if (jobTitle.isEmpty) return '';
-    return _aiService.generateCoverNote(jobTitle, workerExperience: workerExperience);
+    final res = await _assist({
+      'action': 'generateCoverNote',
+      'jobTitle': jobTitle,
+      'workerExperience': workerExperience,
+    });
+    return res['text'] as String? ?? '';
   }
 
   Future<String> askSupportQuestion(
@@ -6303,7 +6338,12 @@ class GeminiService {
     TranyxAIUserContext? appContext,
   }) async {
     if (conversationHistory.isEmpty) return 'Please ask a valid question.';
-    return _aiService.getChatResponse(conversationHistory, appContext: appContext);
+    final res = await _assist({
+      'action': 'askSupportQuestion',
+      'history': conversationHistory,
+      'context': {'summary': appContext?.buildContextBlock() ?? ''},
+    });
+    return res['text'] as String? ?? '';
   }
 }
 
@@ -6324,56 +6364,7 @@ class ImgBBService {
   final String? idToken;
   final Future<String?> Function()? onTokenRefresh;
 
-  static String? _cachedResolvedKey;
-
   ImgBBService(this.config, {this.idToken, this.onTokenRefresh});
-
-  Future<String> _getApiKey() async {
-    if (_cachedResolvedKey != null && _cachedResolvedKey!.isNotEmpty) {
-      return _cachedResolvedKey!;
-    }
-
-    final envKey = Env.imgbbApiKey.trim();
-    if (envKey.isNotEmpty && envKey != 'abfd185244dc224ff987946bc9775bfc') {
-      _cachedResolvedKey = envKey;
-      return envKey;
-    }
-
-    // 1. Try resolving dynamically from Firestore 'config/imgbb' (standard cross-project format)
-    try {
-      final fsService = FirestoreService(idToken, onTokenRefresh);
-      final doc = await fsService.getDocument('config/imgbb');
-      if (doc != null) {
-        final key = doc['apiKey'] ?? doc['key'] ?? doc['api_key'];
-        if (key != null && key.toString().trim().isNotEmpty) {
-          final resolved = key.toString().trim();
-          _cachedResolvedKey = resolved;
-          return resolved;
-        }
-      }
-    } catch (_) {}
-
-    // 2. Try resolving dynamically from Firestore 'config/app_config'
-    try {
-      final fsService = FirestoreService(idToken, onTokenRefresh);
-      final doc = await fsService.getDocument('config/app_config');
-      if (doc != null) {
-        final key = doc['imgbbApiKey'] ?? doc['imgbb'] ?? doc['apiKey'];
-        if (key != null && key.toString().trim().isNotEmpty) {
-          final resolved = key.toString().trim();
-          _cachedResolvedKey = resolved;
-          return resolved;
-        }
-      }
-    } catch (_) {}
-
-    if (envKey.isNotEmpty) {
-      _cachedResolvedKey = envKey;
-      return envKey;
-    }
-
-    return '';
-  }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {
     // 1. Client-side input validation
@@ -6393,109 +6384,28 @@ class ImgBBService {
       throw ImageUploadException('Unsupported file format (.$ext). Please upload a PNG, JPG, or JPEG image.');
     }
 
-    // 2a. Server-side proxy first (uploadImageProxy): the browser never talks to api.imgbb.com, so there is no
-    // CORS failure to hide the real reason and the key stays out of the bundle. Falls back to the direct
-    // upload only when the proxy is not available (not deployed, offline, unexpected reply).
-    String? proxyFailure;
-    if (idToken != null && bytes.length <= 7 * 1024 * 1024) {
-      try {
-        final res = await FirestoreService(idToken, onTokenRefresh).callCloudFunction(
-          'uploadImageProxy',
-          {'imageBase64': base64Encode(bytes), 'name': cleanFilename},
-          timeout: const Duration(seconds: 45),
-        );
-        final url = res['url'];
-        if (url is String && url.startsWith('https://')) return url;
-      } on CloudFunctionException catch (e) {
-        const fallbackStatuses = {'NOT_FOUND', 'UNAVAILABLE', 'INTERNAL', 'NETWORK', 'DEADLINE_EXCEEDED', 'FAILED_PRECONDITION'};
-        if (!fallbackStatuses.contains(e.status)) throw ImageUploadException(e.message);
-        proxyFailure = e.message;
-      } catch (_) {}
+    if (idToken == null) {
+      throw const ImageUploadException('Sign in to upload images.');
     }
-
-    final apiKey = await _getApiKey();
-    if (apiKey.isEmpty) {
-      throw ImageUploadException(proxyFailure ?? 'Image upload service is not configured (missing API key). Please contact support.');
-    }
-
-    final uri = Uri.parse('https://api.imgbb.com/1/upload');
-    String? lastErrorReason;
-
-    // 2. Try URL-encoded base64 POST (fast & direct in browser)
     try {
-      final b64 = base64Encode(bytes);
-      final res = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'key': apiKey,
-          'image': b64,
-          'name': cleanFilename.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), ''),
-          if (expiration != null) 'expiration': expiration.toString(),
+      final res = await FirestoreService(idToken, onTokenRefresh).callCloudFunction(
+        'uploadImageProxy',
+        {
+          'imageBase64': base64Encode(bytes),
+          'name': cleanFilename,
+          if (expiration != null) 'expiration': expiration,
         },
-      ).timeout(const Duration(seconds: 30));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final url = data['data']?['url'] as String? ?? data['data']?['display_url'] as String?;
-        if (url != null && url.isNotEmpty) return url;
-      } else {
-        print('[ImgBB] Base64 upload failed with status ${res.statusCode}: ${res.body}');
-        try {
-          final data = jsonDecode(res.body);
-          final msg = data['error']?['message']?.toString();
-          if (msg != null && msg.isNotEmpty) lastErrorReason = msg;
-        } catch (_) {}
-      }
-    } on TimeoutException {
-      throw const ImageUploadException('Image upload timed out. Please check your internet connection and try again.');
-    } catch (e) {
-      print('[ImgBB] Base64 upload error: $e');
-      if (e is ImageUploadException) rethrow;
-    }
-
-    // 3. Fallback to multipart request
-    try {
-      var multipartUri = uri.replace(
-        queryParameters: {
-          'key': apiKey,
-          if (expiration != null) 'expiration': expiration.toString(),
-        },
+        timeout: const Duration(seconds: 45),
       );
-      var request = http.MultipartRequest('POST', multipartUri);
-      request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: cleanFilename));
-
-      var streamedResponse = await request.send().timeout(const Duration(seconds: 30));
-      var response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final url = data['data']?['url'] as String? ?? data['data']?['display_url'] as String?;
-        if (url != null && url.isNotEmpty) return url;
-      } else {
-        print('[ImgBB] Multipart upload failed with status ${response.statusCode}: ${response.body}');
-        try {
-          final data = jsonDecode(response.body);
-          final msg = data['error']?['message']?.toString();
-          if (msg != null && msg.isNotEmpty) lastErrorReason = msg;
-        } catch (_) {}
-      }
-    } on TimeoutException {
-      throw const ImageUploadException('Image upload timed out. Please check your internet connection and try again.');
-    } catch (e) {
-      print('[ImgBB] Multipart upload error: $e');
-      if (e is ImageUploadException) rethrow;
+      final url = res['url'];
+      if (url is String && url.startsWith('https://')) return url;
+      throw const ImageUploadException('Image upload did not return a URL.');
+    } on CloudFunctionException catch (e) {
+      throw ImageUploadException(e.message);
+    } on ImageUploadException {
+      rethrow;
+    } catch (_) {
+      throw const ImageUploadException('Image upload failed. Please try again.');
     }
-
-    if (lastErrorReason != null && lastErrorReason.isNotEmpty) {
-      if (lastErrorReason.toLowerCase().contains('forbidden')) {
-        throw const ImageUploadException('Image upload gateway rejected request (forbidden). Please try again or contact support.');
-      }
-      throw ImageUploadException('Failed to upload receipt screenshot: $lastErrorReason');
-    }
-
-    throw const ImageUploadException(
-      'The image host could not be reached from this browser (it did not answer, or blocked the request). Please try again in a moment.',
-    );
   }
 }

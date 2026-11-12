@@ -28,17 +28,20 @@ Confirm these GitHub Actions secret **names** exist on `terra-cloud/tranyx` (Set
 
 - `SOLANA_TREASURY_SECRET_KEY`
 - `IMGBB_API_KEY`
+- `GEMINI_AI_API_KEY` (copied into Secret Manager as `GEMINI_API_KEY`)
 - `FIREBASE_SERVICE_ACCOUNT_TRANYX_APP`
 
-`requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` read `SOLANA_TREASURY_SECRET_KEY` with `defineSecret`. `uploadImageProxy` reads `IMGBB_API_KEY` the same way. A GitHub secret is not visible to Cloud Functions until the workflow copies it into Secret Manager. The `main` deploy does that copy, then deploys. If either GitHub secret is missing, that job fails before deploy.
+`requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` read `SOLANA_TREASURY_SECRET_KEY` with `defineSecret`. `uploadImageProxy` reads `IMGBB_API_KEY`. `geminiAssist` reads `GEMINI_API_KEY`. A GitHub secret is not visible to Cloud Functions until the workflow copies it into Secret Manager. The `main` deploy does that copy, then deploys. If any of those GitHub secrets is missing, that job fails before deploy. Do not pass `XENDIT_SECRET_KEY`, `IMGBB_API_KEY`, `GEMINI_AI_API_KEY`, or `CLOUDFLARE_API_TOKEN` into the web build.
 
 After the workflow succeeds, these commands show metadata only:
 
 ```bash
 gcloud secrets describe SOLANA_TREASURY_SECRET_KEY --project tranyx-app
 gcloud secrets describe IMGBB_API_KEY --project tranyx-app
+gcloud secrets describe GEMINI_API_KEY --project tranyx-app
 gcloud secrets versions list SOLANA_TREASURY_SECRET_KEY --project tranyx-app
 gcloud secrets versions list IMGBB_API_KEY --project tranyx-app
+gcloud secrets versions list GEMINI_API_KEY --project tranyx-app
 ```
 
 Do not run `firebase functions:secrets:get` or `gcloud secrets versions access`.
@@ -72,7 +75,7 @@ Workflow **Deploy hosting and production functions** (`.github/workflows/jaspr-h
 
 For `github.ref_name == main` and a backend change, in this order:
 
-1. `firebase functions:secrets:set` for `SOLANA_TREASURY_SECRET_KEY` and `IMGBB_API_KEY`, reading the GitHub Actions secrets on stdin (`--data-file=-`). That writes Google Secret Manager on `tranyx-app`. It does not print the values.
+1. `firebase functions:secrets:set` for `SOLANA_TREASURY_SECRET_KEY`, `IMGBB_API_KEY`, and `GEMINI_API_KEY` (from the GitHub secret `GEMINI_AI_API_KEY`), reading the GitHub Actions secrets on stdin (`--data-file=-`). That writes Google Secret Manager on `tranyx-app`. It does not print the values.
 2. `firebase deploy --only functions,firestore:rules,firestore:indexes --project tranyx-app`.
 3. If web files changed, Hosting channel `live` on the default site `tranyx-app`. Live URLs: https://tranyx-app.web.app and https://tranyx.app.
 
@@ -144,10 +147,7 @@ There is no laptop fallback for this deploy. If you ever rebuild the web by hand
 ```bash
 cd packages/tranyx_web
 jaspr build --dart-define=ENV=prod \
-  --dart-define=XENDIT_SECRET_KEY="$XENDIT_SECRET_KEY" \
-  --dart-define=IMGBB_API_KEY="$IMGBB_API_KEY" \
   --dart-define=BASEMAPS_API_KEY="$BASEMAPS_API_KEY" \
-  --dart-define=GEMINI_AI_API_KEY="$GEMINI_AI_API_KEY" \
   --dart-define=SOLANA_PUBLIC_KEY="$SOLANA_PUBLIC_KEY"
 cd ../..
 npx firebase-tools@15.5.1 deploy --only hosting --project tranyx-app
