@@ -105,13 +105,27 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "$SOLANA_TREASURY_SECRET_KEY" ] || [ -z "$IMGBB_API_KEY" ] || [ -z "$GEMINI_API_KEY" ]; then
-            echo "Missing GitHub secret SOLANA_TREASURY_SECRET_KEY, IMGBB_API_KEY, or GEMINI_AI_API_KEY"
-            exit 1
-          fi
-          printf '%s' "$SOLANA_TREASURY_SECRET_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set SOLANA_TREASURY_SECRET_KEY --data-file=- --project tranyx-app
-          printf '%s' "$IMGBB_API_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set IMGBB_API_KEY --data-file=- --project tranyx-app
-          printf '%s' "$GEMINI_API_KEY" | npx --yes firebase-tools@15.5.1 functions:secrets:set GEMINI_API_KEY --data-file=- --project tranyx-app
+          # A non-empty GitHub value is copied into Secret Manager. An empty
+          # GitHub value is left alone when Secret Manager already has the secret.
+          # stdout of secrets:access is the secret value, so it is discarded.
+          sync_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              printf '%s' "$value" | npx --yes firebase-tools@15.5.1 functions:secrets:set "$name" --data-file=- --project tranyx-app
+              echo "Updated Secret Manager secret $name from GitHub"
+              return 0
+            fi
+            if npx --yes firebase-tools@15.5.1 functions:secrets:access "$name" --project tranyx-app >/dev/null; then
+              echo "GitHub secret $name is empty; leaving the existing Secret Manager version"
+              return 0
+            fi
+            echo "GitHub secret $name is empty and tranyx-app Secret Manager has no $name"
+            return 1
+          }
+          sync_secret SOLANA_TREASURY_SECRET_KEY "$SOLANA_TREASURY_SECRET_KEY"
+          sync_secret IMGBB_API_KEY "$IMGBB_API_KEY"
+          sync_secret GEMINI_API_KEY "$GEMINI_API_KEY"
 
       - name: Deploy functions, rules, and indexes (prod)
         if: steps.filter.outputs.backend == 'true' && github.ref_name == 'main'
