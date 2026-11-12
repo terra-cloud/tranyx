@@ -55,7 +55,7 @@ Confirm locally that `ENFORCE_APP_CHECK` is `true`. Leave it true for this relea
 
 Service accounts for the data tools, as file paths, never committed:
 
-- `ADMIN_GOOGLE_APPLICATION_CREDENTIALS` — read `users` on `tranyx-admin` (claims sync source)
+- `ADMIN_GOOGLE_APPLICATION_CREDENTIALS` — read `users` and Auth on `tranyx-admin-portal` (claims sync source)
 - `TARGET_GOOGLE_APPLICATION_CREDENTIALS` — Firebase Auth Admin and Cloud Datastore User on `tranyx-app`
 - `GOOGLE_APPLICATION_CREDENTIALS` — used for the target only when `TARGET_GOOGLE_APPLICATION_CREDENTIALS` is unset
 
@@ -82,19 +82,21 @@ A push to `main` does not publish mobile. `.github/workflows/tranyx-mobile-publi
 
 ## 3. Staff claims, before the main push
 
-Source of truth: `users` on `tranyx-admin` where `isAdmin`, `isStaff`, or `isSuperAdmin` is true. Admin and superadmin get `{ admin: true, role: 'admin' }`. Staff-only get `{ admin: false, role: 'staff' }`.
+Source of truth: `users` on `tranyx-admin-portal` where `isAdmin`, `isStaff`, or `isSuperAdmin` is true. That project is separate from `tranyx-app`, so an admin-portal uid is not a tranyx-app uid. The tool takes the email on the user document, or looks it up with admin-portal Auth when the document email is empty, then finds the tranyx-app user with that email and grants claims to the tranyx-app uid. It does not grant a uid that is missing from tranyx-app Auth. Unmatched people are printed with `email` and `reason` (`no-email` or `no-target-user`).
 
-`--revoke` is not part of this release. Omit it unless you intend to remove claims.
+Admin and superadmin get `{ admin: true, role: 'admin' }`. Staff-only get `{ admin: false, role: 'staff' }`.
+
+`--revoke` is not part of this release. Omit it unless you intend to remove claims. Revocation, when you do pass it, looks at tranyx-app Auth users who still have admin or staff claims and were not matched by email.
 
 ```bash
-export ADMIN_GOOGLE_APPLICATION_CREDENTIALS=/path/to/tranyx-admin-reader.json
+export ADMIN_GOOGLE_APPLICATION_CREDENTIALS=/path/to/tranyx-admin-portal-reader.json
 export TARGET_GOOGLE_APPLICATION_CREDENTIALS=/path/to/tranyx-app-admin.json
 
 node tool/sync_staff_claims.mjs --project tranyx-app --allow-prod
 node tool/sync_staff_claims.mjs --project tranyx-app --allow-prod --apply
 ```
 
-The first command only prints `grant` and `wouldRevoke`. The second writes claims and logs each `setCustomUserClaims`. Running it again skips users whose claims already match.
+The first command only prints `grant`, `unmatched`, and `wouldRevoke`. The second writes claims on the matched tranyx-app uids and logs each `setCustomUserClaims`. Running it again skips users whose claims already match.
 
 Each staff and admin person signs out of the web app and signs back in. An existing ID token keeps the old claims until then. New rules and `staffOps` ignore `users.isAdmin` / `users.isStaff` document flags.
 
