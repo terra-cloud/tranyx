@@ -3197,16 +3197,7 @@ class _HelpSupportState extends State<_HelpSupport> {
 
     try {
       final gemini = GeminiService(currentFirebaseConfig, idToken: SessionStorage.idToken);
-      final profile = component.state.userProfile;
-      final userCtx = TranyxAIUserContext(
-        userId: SessionStorage.uid,
-        userRole: component.state.accountType.name,
-        walletAddress: profile?.walletPublicKey,
-        connectedWallet: profile?.walletPublicKey != null ? 'Solana Wallet' : null,
-        tyxbitBalance: profile?.tyxBalance,
-        isWalletVerified: profile?.walletPublicKey != null,
-      );
-      final response = await gemini.askSupportQuestion(history, appContext: userCtx);
+      final response = await gemini.askSupportQuestion(history);
 
       if (response == "TRANSFER_TO_AGENT") {
         setState(() {
