@@ -5,6 +5,7 @@ import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
 import '../../components/ui_helpers.dart';
+import '../../services/tranyx_firebase_ai.dart';
 import '../../services/web_interop.dart';
 
 class ChatWidget extends StatefulComponent {
@@ -36,6 +37,32 @@ class _ChatWidgetState extends State<ChatWidget> {
   void dispose() {
     _tickerTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _suggestReply(TranyxAppState s, String uid) async {
+    Map<String, dynamic>? incoming;
+    for (final msg in s.chatMessages.reversed) {
+      final sender = msg['senderId'] as String? ?? '';
+      final text = (msg['text'] as String? ?? '').trim();
+      if (sender.isNotEmpty && sender != uid && sender != 'system' && text.isNotEmpty) {
+        incoming = msg;
+        break;
+      }
+    }
+    if (incoming == null) return;
+    final draft = await TranyxFirebaseAi().reply(
+      message: 'Suggest a short polite reply I can send in this Tranyx chat. Their last message was: ${incoming['text']}',
+      signedIn: true,
+      idToken: SessionStorage.idToken,
+    );
+    if (!mounted) return;
+    if (draft == kTranyxAssistantRefusal ||
+        draft == kTranyxAssistantAdviceRefusal ||
+        draft == kTranyxAssistantDataRefusal ||
+        draft == kTranyxAssistantQuotaRefusal) {
+      return;
+    }
+    s.setState(() => s.chatInputText = draft == 'TRANSFER_TO_AGENT' ? '' : draft);
   }
 
   String _formatTime(dynamic raw) {
@@ -423,6 +450,15 @@ class _ChatWidgetState extends State<ChatWidget> {
                               },
                             },
                     ),
+
+                    if (!s.isChatLocked && !MessageViolationTracker.isMessagingLocked(uid))
+                      button(
+                        classes:
+                            'p-2.5 rounded-xl ${isDark ? "bg-zinc-800 text-zinc-300 hover:text-emerald-400" : "bg-zinc-100 text-zinc-600 hover:text-emerald-600"} transition-colors',
+                        attributes: {'title': 'Suggest a reply', 'type': 'button'},
+                        events: {'click': (_) => _suggestReply(s, uid)},
+                        [lIcon('sparkles', cls: 'w-5 h-5')],
+                      ),
 
                     // Send button
                     button(
