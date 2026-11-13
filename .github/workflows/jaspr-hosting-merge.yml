@@ -89,12 +89,23 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT_TRANYX_APP: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_TRANYX_APP }}
         run: |
+          set -euo pipefail
           if [ -z "$FIREBASE_SERVICE_ACCOUNT_TRANYX_APP" ]; then
             echo "Missing GitHub secret FIREBASE_SERVICE_ACCOUNT_TRANYX_APP"
             exit 1
           fi
           umask 077
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_TRANYX_APP" > "$RUNNER_TEMP/tranyx-app-sa.json"
+          python3 - << 'PY'
+          import json, os
+          path = os.environ["RUNNER_TEMP"] + "/tranyx-app-sa.json"
+          with open(path) as handle:
+              data = json.load(handle)
+          email = data.get("client_email") or ""
+          if not email:
+              raise SystemExit("Service account JSON has no client_email")
+          print("Deploy service account client_email:", email)
+          PY
 
       - name: Sync function secrets to Secret Manager
         if: steps.filter.outputs.backend == 'true' && github.ref_name == 'main'
@@ -106,8 +117,8 @@ jobs:
         run: |
           set -euo pipefail
           # A non-empty GitHub value is copied into Secret Manager. An empty
-          # GitHub value is left alone when Secret Manager already has the secret.
-          # stdout of secrets:access is the secret value, so it is discarded.
+          # GitHub value does not fail this step. secrets:get lists versions
+          # only; it does not print the secret value. Deploy validates the binding.
           sync_secret() {
             local name="$1"
             local value="$2"
@@ -116,12 +127,15 @@ jobs:
               echo "Updated Secret Manager secret $name from GitHub"
               return 0
             fi
-            if npx --yes firebase-tools@15.5.1 functions:secrets:access "$name" --project tranyx-app >/dev/null; then
-              echo "GitHub secret $name is empty; leaving the existing Secret Manager version"
-              return 0
-            fi
-            echo "GitHub secret $name is empty and tranyx-app Secret Manager has no $name"
-            return 1
+            echo "::warning::GitHub secret $name is empty; the existing Secret Manager value will be used"
+            local get_out get_code
+            set +e
+            get_out=$(npx --yes firebase-tools@15.5.1 functions:secrets:get "$name" --project tranyx-app 2>&1)
+            get_code=$?
+            set -e
+            echo "functions:secrets:get $name exit ${get_code}"
+            printf '%s\n' "$get_out"
+            return 0
           }
           sync_secret SOLANA_TREASURY_SECRET_KEY "$SOLANA_TREASURY_SECRET_KEY"
           sync_secret IMGBB_API_KEY "$IMGBB_API_KEY"
