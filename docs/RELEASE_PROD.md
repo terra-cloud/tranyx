@@ -8,7 +8,7 @@ Repo: `~/Desktop/tranyx_workspace`. Every Firebase command includes `--project t
 
 ## Before you start
 
-Treasury config stays as it is. `functions/.env.tranyx-app` does not set `SOLANA_TREASURY_PUBLIC_KEY`. Withdrawals keep using the existing `system_config/treasury` public key. Do not change that document or the treasury code for this release.
+Treasury config stays as it is. `functions/.env.tranyx-app` sets `SOLANA_TREASURY_PUBLIC_KEY` to an empty value so non-interactive deploys have the param, and withdrawals still read the existing `system_config/treasury` public key. Do not change that document or the treasury code for this release.
 
 Mobile publish does not run on a push to `main`. `.github/workflows/tranyx-mobile-publish.yml` still exists. Its job runs only from **Run workflow** (`workflow_dispatch`) or when the repository variable `PUBLISH_MOBILE` is exactly `true`. Leave that variable unset.
 
@@ -57,7 +57,7 @@ Params already named in `functions/.env.tranyx-app` (values stay in that file):
 - `SOLANA_USDT_MINT`
 - `ENFORCE_APP_CHECK`
 
-Confirm `ENFORCE_APP_CHECK` is `true`. Leave it true. `SOLANA_TREASURY_PUBLIC_KEY` stays unset so withdrawals keep reading `system_config/treasury`.
+Confirm `ENFORCE_APP_CHECK` is `true`. Leave it true. `SOLANA_TREASURY_PUBLIC_KEY` stays empty so withdrawals keep reading `system_config/treasury`. `WALLET_AUTH_DOMAINS` lists the production web hosts.
 
 ## 2. Staff claims by email
 
