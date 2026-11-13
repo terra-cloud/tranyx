@@ -47,9 +47,9 @@ Confirm these GitHub Actions secret **names** exist on `terra-cloud/tranyx`. Do 
 - `GEMINI_AI_API_KEY` (copied into Secret Manager as `GEMINI_API_KEY` when the GitHub value is non-empty)
 - `FIREBASE_SERVICE_ACCOUNT_TRANYX_APP`
 
-`SOLANA_TREASURY_SECRET_KEY` is already in tranyx-app Secret Manager. It does not need a GitHub secret. If that GitHub secret is empty, the workflow leaves the existing Secret Manager version in place.
+`SOLANA_TREASURY_SECRET_KEY` is already in tranyx-app Secret Manager. It does not need a GitHub secret. If that GitHub secret is empty, the workflow warns and leaves the existing Secret Manager version in place.
 
-`requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` read `SOLANA_TREASURY_SECRET_KEY`. `uploadImageProxy` reads `IMGBB_API_KEY`. `geminiAssist` reads `GEMINI_API_KEY`. For each of those three, a non-empty GitHub value is copied into Secret Manager. An empty GitHub value is allowed only when Secret Manager already has the secret. The job fails only when the GitHub value is empty and Secret Manager does not have it. The step does not print values.
+`requestWithdrawal`, `reconcileWithdrawals`, and `staffOps` read `SOLANA_TREASURY_SECRET_KEY`. `uploadImageProxy` reads `IMGBB_API_KEY`. `geminiAssist` reads `GEMINI_API_KEY`. For each of those three, a non-empty GitHub value is copied into Secret Manager. An empty GitHub value does not fail the copy step. The step prints `functions:secrets:get` version metadata and the deploy service account `client_email`. It does not print secret values. The functions deploy is what fails if a bound secret is actually missing.
 
 Params already named in `functions/.env.tranyx-app` (values stay in that file):
 
@@ -98,7 +98,7 @@ Branch protection in `.github/workflows/ruleset.yml`:
 
 Do this only after steps 2 and 3. One push to `main` runs **Deploy hosting and production functions** (`.github/workflows/jaspr-hosting-merge.yml`). On `main`, that job does these in order:
 
-1. For `SOLANA_TREASURY_SECRET_KEY`, `IMGBB_API_KEY`, and `GEMINI_API_KEY`: copy the GitHub value into Secret Manager when it is non-empty (`GEMINI_API_KEY` comes from GitHub secret `GEMINI_AI_API_KEY`). When the GitHub value is empty, keep the existing Secret Manager version if `functions:secrets:access` succeeds. Fail only when it is empty and missing. The step does not print values.
+1. For `SOLANA_TREASURY_SECRET_KEY`, `IMGBB_API_KEY`, and `GEMINI_API_KEY`: copy the GitHub value into Secret Manager when it is non-empty (`GEMINI_API_KEY` comes from GitHub secret `GEMINI_AI_API_KEY`). When the GitHub value is empty, warn and continue. `functions:secrets:get` prints version states only. The functions deploy validates that the secret is bound. The step does not print values.
 2. `firebase deploy --only functions,firestore:rules,firestore:indexes --project tranyx-app`.
 3. Hosting channel `live` on the default site `tranyx-app` when web files changed. Live URLs: https://tranyx-app.web.app and https://tranyx.app.
 
