@@ -35,6 +35,10 @@ const base = (extra = {}) => seed({
 const STAFF = {
   'admin custom claim': () => adminClaim('claimAdmin'),
   'role:"support" claim': () => user('sup', { role: 'support' }),
+  'role:"staff" claim': () => user('desk', { role: 'staff' }),
+  'role:"agent" claim': () => user('agt', { role: 'agent' }),
+};
+const DOC_ONLY = {
   'users doc isAdmin:true (gmail)': () => user('docAdmin'),
   'users doc role:"agent" (gmail)': () => user('docAgent'),
   'P2P agent: p2p_agents/{uid} doc (gmail)': () => user('p2p'),
@@ -51,7 +55,19 @@ const deskOps = {
   'read any notification': (db) => getDoc(doc(db, 'notifications/notif_1_worke')),
 };
 
-describe('STAFF-MA: [MUST-ALLOW] support desk / disputes / agent access via isAdminOrStaff()', () => {
+describe('STAFF-DOC: a users doc or an active p2p_agents doc does not grant desk access', () => {
+  for (const [who, mk] of Object.entries(DOC_ONLY)) {
+    it(`STAFF-DOC ${who}: denied every desk op`, async () => {
+      await base();
+      for (const [op, fn] of Object.entries(deskOps)) {
+        if (op.startsWith('create a notification')) continue;
+        try { await assertFails(fn(mk())); } catch (e) { throw new Error(`${op}: ${e.message}`); }
+      }
+    });
+  }
+});
+
+describe('STAFF-MA: [MUST-ALLOW] support desk / disputes / agent access via custom claims', () => {
   for (const [who, mk] of Object.entries(STAFF)) {
     it(`STAFF-MA ${who}: every desk op`, async () => {
       await base();

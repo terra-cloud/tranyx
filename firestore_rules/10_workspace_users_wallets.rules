@@ -214,12 +214,12 @@
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
-      allow delete: if isAdminOrStaff();
+      allow delete: if isClaimAdmin();
       
       // Legacy user reviews subcollection: read-only for clients. New ratings go to /ratings (KAN-145).
       match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isAdminOrStaff();
+        allow write: if isClaimAdmin();
       }
 
       // User Points subcollection

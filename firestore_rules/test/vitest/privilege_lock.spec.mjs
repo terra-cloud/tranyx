@@ -51,9 +51,10 @@ describe('privilege fields are claim-admin only', () => {
     await assertSucceeds(setDoc(doc(user('signup'), 'users/signup'), userProfile('signup', { tyxBalance: 0, reservedBalance: 0 })));
   });
 
-  it('an agent can still moderate a non-privilege field', async () => {
+  it('a role agent claim can moderate a non-privilege field; a p2p doc cannot', async () => {
     await base();
-    await assertSucceeds(updateDoc(doc(user('agent1'), 'users/victim'), { banned: true, headline: 'held' }));
+    await assertFails(updateDoc(doc(user('agent1'), 'users/victim'), { banned: true, headline: 'held' }));
+    await assertSucceeds(updateDoc(doc(user('claimAgent', { role: 'agent' }), 'users/victim'), { banned: true, headline: 'held' }));
   });
 });
 

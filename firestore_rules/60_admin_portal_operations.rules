@@ -79,14 +79,14 @@
 
     // Config Collection. Clients only read config/app_config; third-party API docs (e.g. config/imgbb) are admin only.
     match /config/{docId} {
-      allow read: if isAdminOrStaff() || (isAuthenticated() && docId == 'app_config');
-      allow write: if isAdminOrStaff();
+      allow read: if isClaimAdmin() || (isAuthenticated() && docId == 'app_config');
+      allow write: if isClaimAdmin();
     }
 
     // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
     match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
-      allow write: if isAdminOrStaff();
+      allow write: if isClaimAdmin();
     }
 
     // settings/platform_fees: the fee rates the web/mobile apps read before showing a gig/booking total.
@@ -105,11 +105,11 @@
     // Platform Config Collection (Job SLAs, Platform Settings - Admin managed)
     match /platform_config/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAdminOrStaff();
+      allow write: if isClaimAdmin();
     }
     match /platform_config/{docId}/{subPath=**} {
       allow read: if isAuthenticated();
-      allow write: if isAdminOrStaff();
+      allow write: if isClaimAdmin();
     }
 
     // Promos Collection
