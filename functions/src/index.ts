@@ -18,6 +18,7 @@ import { bookingAction as runBookingAction, bookingRequest as runBookingRequest,
 import { jobAction as runJobAction } from './jobs';
 import { staffClaimsOnly, staffOps as runStaffOps } from './staff_ops';
 import { syncStaffAccess as runSyncStaffAccess } from './staff_access';
+import { attributePartnerRevenue as runAttributePartnerRevenue, partnerAdmin as runPartnerAdmin, partnerDesk as runPartnerDesk } from './partner';
 import { awardPoints as runAwardPoints } from './points';
 import type { MoneyDeps } from './money';
 
@@ -257,6 +258,54 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
+
+/** City partner provisioning, payout approval, and the super-admin overview. Admin claim only. */
+export const partnerAdmin = onCall(
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10 },
+  async (req) => {
+    try {
+      return await runPartnerAdmin({
+        callerUid: req.auth?.uid,
+        callerToken: req.auth?.token as Record<string, unknown> | undefined,
+        data: req.data,
+        auth: getAuth(),
+        db: getFirestore(),
+      });
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('partnerAdmin failed', { detail: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      throw new HttpsError('internal', 'The partner request could not be processed.');
+    }
+  },
+);
+
+/** Partner desk reads, masked directory, review, and statement CSV. Partners need a second factor. */
+export const partnerDesk = onCall(
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10 },
+  async (req) => {
+    try {
+      return await runPartnerDesk({
+        callerUid: req.auth?.uid,
+        callerToken: req.auth?.token as Record<string, unknown> | undefined,
+        data: req.data,
+        db: getFirestore(),
+      });
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('partnerDesk failed', { detail: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      throw new HttpsError('internal', 'The partner desk could not be opened.');
+    }
+  },
+);
+
+/** Tags settled rental and gig revenue to an area and writes the monthly payout draft. */
+export const attributePartnerRevenue = onSchedule(
+  { schedule: 'every 60 minutes', region: 'us-central1', timeoutSeconds: 300, memory: '256MiB' },
+  async () => {
+    const res = await runAttributePartnerRevenue(getFirestore());
+    logger.info('attributePartnerRevenue', res);
+  },
+);
 
 /** Provision a workspace Auth user and replace their custom claims. Caller authority is the token only. */
 export const syncStaffAccess = onCall(
