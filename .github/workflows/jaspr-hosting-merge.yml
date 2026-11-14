@@ -12,6 +12,7 @@ on:
       - 'firestore.rules'
       - 'firestore_rules/**'
       - 'packages/tranyx_web/firestore.indexes.json'
+      - 'firebase.json'
       - '.github/workflows/jaspr-hosting-merge.yml'
 
 jobs:
@@ -28,6 +29,7 @@ jobs:
             web:
               - 'packages/tranyx_web/**'
               - 'packages/shared/**'
+              - 'firebase.json'
               - '.github/workflows/jaspr-hosting-merge.yml'
             backend:
               - 'functions/**'
@@ -162,7 +164,17 @@ jobs:
               raise SystemExit(
                   "Refusing deploy: firebase.json Hosting must stay the default tranyx-app site, not a multi-site target."
               )
+          csp = ""
+          for block in hosting.get("headers") or []:
+              for header in block.get("headers") or []:
+                  if header.get("key") == "Content-Security-Policy":
+                      csp = header.get("value") or ""
+          if "content-firebaseappcheck.googleapis.com" not in csp:
+              raise SystemExit(
+                  "Refusing deploy: firebase.json Hosting headers have no App Check connect-src."
+              )
           print("Production live site: https://tranyx-app.web.app and https://tranyx.app")
+          print("Hosting deploy reads headers from firebase.json for the default tranyx-app site.")
           PY
 
       - name: Deploy to Firebase Hosting (prod)
