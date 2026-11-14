@@ -5,17 +5,17 @@
     // P2P Agents Collection. Public read of QR credentials. Creating or editing an agent is an admin claim,
     // not a users-doc flag and not an existing agent document.
     match /p2p_agents/{agentId} {
-      allow read: if true;
+      allow read: if !isPartnerToken();
       allow write: if isClaimAdmin();
     }
 
     // Unified Requests Collection (Admin Portal: Enforces 3-Min Claim Limit & Single-Agent Lock)
     match /requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow create: if isAuthenticated() && !isPartnerToken();
       allow delete: if isAdminOrStaff();
       
-      allow update: if isAuthenticated() && (
+      allow update: if isAuthenticated() && !isPartnerToken() && (
         isAdminOrStaff() ||
         // 1. Agent accepting their assignment WITHIN 3 minutes
         (
@@ -79,13 +79,13 @@
 
     // Config Collection. Clients only read config/app_config; third-party API docs (e.g. config/imgbb) are admin only.
     match /config/{docId} {
-      allow read: if isClaimAdmin() || (isAuthenticated() && docId == 'app_config');
+      allow read: if isClaimAdmin() || (isAuthenticated() && !isPartnerToken() && docId == 'app_config');
       allow write: if isClaimAdmin();
     }
 
     // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
     match /platform_fees/{feeId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow write: if isClaimAdmin();
     }
 
@@ -98,23 +98,23 @@
     }
 
     match /settings/{docId} {
-      allow read: if isAuthenticated() && docId == 'platform_fees';
+      allow read: if isAuthenticated() && !isPartnerToken() && docId == 'platform_fees';
       allow write: if isAdminOrStaff();
     }
 
     // Platform Config Collection (Job SLAs, Platform Settings - Admin managed)
     match /platform_config/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow write: if isClaimAdmin();
     }
     match /platform_config/{docId}/{subPath=**} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow write: if isClaimAdmin();
     }
 
     // Promos Collection
     match /promos/{promoId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow create, delete: if isAdminOrStaff();
       allow update: if isAdminOrStaff() || 
         (isActiveUser() && 
@@ -144,7 +144,47 @@
 
     // Agent & Staff Realtime Presence Collection
     match /presence/{agentId} {
-      allow read: if true;
-      allow write: if isAuthenticated() && (isOwner(agentId) || isAdminOrStaff());
+      allow read: if !isPartnerToken();
+      allow write: if isAuthenticated() && !isPartnerToken() && (isOwner(agentId) || isAdminOrStaff());
+    }
+
+    // City Partner License (TRAD-15). Clients never write these. Partners read only their own rows.
+    match /partners/{partnerId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && partnerId == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /area_assignments/{areaKey} {
+      allow read: if isClaimAdmin();
+      allow write: if false;
+    }
+
+    match /partner_audit_log/{entryId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && resource.data.get('partnerId', '') == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /area_revenue/{entryId} {
+      allow read: if isClaimAdmin() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
+      allow write: if false;
+    }
+
+    match /area_revenue_index/{entryId} {
+      allow read, write: if false;
+    }
+
+    match /partner_statements/{statementId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && resource.data.get('partnerId', '') == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /partner_payouts/{payoutId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && resource.data.get('partnerId', '') == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /partner_config/{docId} {
+      allow read: if isClaimAdmin();
+      allow write: if false;
     }
 

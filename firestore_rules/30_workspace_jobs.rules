@@ -69,7 +69,8 @@
 
     // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
     match /jobs/{jobId} {
-      allow read: if true; // Publicly browse jobs
+      // Public for everyone except a partner token, which only reads its own areaKey.
+      allow read: if !isPartnerToken() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid &&
         !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']) &&
         !hasExactListingLocation(request.resource.data);
@@ -89,7 +90,7 @@
 
       // Exact address and coordinates. Signed-in users only. The public job keeps addressPublic.
       match /private/{docId} {
-        allow read: if isAuthenticated() && docId == 'location';
+        allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' && (
           get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
           get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
@@ -146,14 +147,14 @@
 
       // Subcollection: Questions (Public Q&A)
       match /questions/{questionId} {
-        allow read: if true;
-        allow write: if isActiveUser();
+        allow read: if !isPartnerToken();
+        allow write: if isActiveUser() && !isPartnerToken();
       }
 
       // Subcollection: QnA (Public Q&A alternative path)
       match /qna/{qnaId} {
-        allow read: if true;
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if !isPartnerToken();
+        allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
       }
     }
 

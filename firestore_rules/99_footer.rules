@@ -3,17 +3,17 @@
     // ------------------------------------------------------------------------
 
     match /{path=**}/applications/{applicantId} {
-      allow read: if isActiveUser() || isAdminOrStaff();
+      allow read: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     match /{path=**}/questions/{questionId} {
-      allow read: if true;
-      allow write: if isActiveUser();
+      allow read: if !isPartnerToken();
+      allow write: if isActiveUser() && !isPartnerToken();
     }
 
     match /{path=**}/qna/{qnaId} {
-      allow read: if true;
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if !isPartnerToken();
+      allow write: if ((isActiveUser() && !isPartnerToken()) || isAdminOrStaff());
     }
   }
 }

@@ -23,7 +23,8 @@
 
     // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
     match /rentals/{rentalId} {
-      allow read: if true;
+      // Public for everyone except a partner token, which only reads its own areaKey.
+      allow read: if !isPartnerToken() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
         isValidVehiclePricing(request.resource.data) && !hasExactListingLocation(request.resource.data);
       
@@ -122,7 +123,7 @@
       );
 
       match /private/{docId} {
-        allow read: if isAuthenticated() && docId == 'location';
+        allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' && (
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
@@ -133,13 +134,13 @@
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
       match /questions/{questionId} {
-        allow read: if true;
-        allow write: if isActiveUser();
+        allow read: if !isPartnerToken();
+        allow write: if isActiveUser() && !isPartnerToken();
       }
 
       match /qna/{qnaId} {
-        allow read: if true;
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if !isPartnerToken();
+        allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
       }
     }
 
@@ -176,7 +177,7 @@
       // Participants (host, renter, or the rentee/renterId/uid aliases) and claim staff only.
       // A rentalId-only list is not a party constraint, so strangers cannot read a listing's requests.
       // Public listing docs stay on /rentals. Collection-group queries have no separate allow.
-      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data)) || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff.
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/rental_escrows/$(requestId))) || isAdminOrStaff();
@@ -184,14 +185,14 @@
 
     // Rental Extensions Collection
     match /rental_extensions/{extId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     // Rental History Collection
     match /rental_history/{historyId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     // Rental Escrows Collection (Dual-field support for renteeId & renterId)
