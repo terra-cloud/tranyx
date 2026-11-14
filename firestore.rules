@@ -115,9 +115,10 @@ service cloud.firestore {
       return exists(path) && get(path).data.get('isActive', false) == true;
     }
 
-    // Helper to check if the user is an admin, staff member, or registered P2P agent
+    // Desk access is a custom claim only. A client-written users doc or an active p2p_agents
+    // doc does not grant it, and neither does the text of an email address.
     function isAdminOrStaff() {
-      return isAdminTokenOrEmail() || (isAuthenticated() && (isUserAdminInDoc() || isP2pAgentInDoc()));
+      return isClaimStaff();
     }
 
     // Server-issued admin custom claim only. role=agent/staff, a users-doc flag, or an active
@@ -374,12 +375,12 @@ service cloud.firestore {
       ) &&
       (!('tyxBalance' in request.resource.data) || (request.resource.data.tyxBalance is number && request.resource.data.tyxBalance >= 0));
 
-      allow delete: if isAdminOrStaff();
+      allow delete: if isClaimAdmin();
       
       // Legacy user reviews subcollection: read-only for clients. New ratings go to /ratings (KAN-145).
       match /reviews/{reviewId} {
         allow read: if true;
-        allow write: if isAdminOrStaff();
+        allow write: if isClaimAdmin();
       }
 
       // User Points subcollection
@@ -1346,14 +1347,15 @@ service cloud.firestore {
       }
     }
 
-    // Support Chats Collection: keyed by the user's uid; the support desk is staff/agents (isAdminOrStaff).
+    // Support Chats Collection: keyed by the user's uid. Desk access is a custom claim
+    // (isClaimStaff). A users doc or an active p2p_agents doc does not grant it.
     match /support_chats/{chatId} {
-      allow read: if isOwner(chatId) || isAdminOrStaff();
-      allow write: if (isOwner(chatId) && isActiveUser()) || isAdminOrStaff();
+      allow read: if isOwner(chatId) || isClaimStaff();
+      allow write: if (isOwner(chatId) && isActiveUser()) || isClaimStaff();
       match /messages/{messageId} {
-        allow read: if isOwner(chatId) || isAdminOrStaff();
-        allow create: if (isOwner(chatId) && isActiveUser() && request.resource.data.senderId == request.auth.uid) || isAdminOrStaff();
-        allow update, delete: if isAdminOrStaff();
+        allow read: if isOwner(chatId) || isClaimStaff();
+        allow create: if (isOwner(chatId) && isActiveUser() && request.resource.data.senderId == request.auth.uid) || isClaimStaff();
+        allow update, delete: if isClaimStaff();
       }
     }
 
@@ -1560,14 +1562,14 @@ service cloud.firestore {
 
     // Config Collection. Clients only read config/app_config; third-party API docs (e.g. config/imgbb) are admin only.
     match /config/{docId} {
-      allow read: if isAdminOrStaff() || (isAuthenticated() && docId == 'app_config');
-      allow write: if isAdminOrStaff();
+      allow read: if isClaimAdmin() || (isAuthenticated() && docId == 'app_config');
+      allow write: if isClaimAdmin();
     }
 
     // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
     match /platform_fees/{feeId} {
       allow read: if isAuthenticated();
-      allow write: if isAdminOrStaff();
+      allow write: if isClaimAdmin();
     }
 
     // settings/platform_fees: the fee rates the web/mobile apps read before showing a gig/booking total.
@@ -1586,11 +1588,11 @@ service cloud.firestore {
     // Platform Config Collection (Job SLAs, Platform Settings - Admin managed)
     match /platform_config/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isAdminOrStaff();
+      allow write: if isClaimAdmin();
     }
     match /platform_config/{docId}/{subPath=**} {
       allow read: if isAuthenticated();
-      allow write: if isAdminOrStaff();
+      allow write: if isClaimAdmin();
     }
 
     // Promos Collection
