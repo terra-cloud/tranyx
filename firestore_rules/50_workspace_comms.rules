@@ -97,14 +97,15 @@
       }
     }
 
-    // Support Chats Collection: keyed by the user's uid; the support desk is staff/agents (isAdminOrStaff).
+    // Support Chats Collection: keyed by the user's uid. Desk access is a custom claim
+    // (isClaimStaff). A users doc or an active p2p_agents doc does not grant it.
     match /support_chats/{chatId} {
-      allow read: if isOwner(chatId) || isAdminOrStaff();
-      allow write: if (isOwner(chatId) && isActiveUser()) || isAdminOrStaff();
+      allow read: if isOwner(chatId) || isClaimStaff();
+      allow write: if (isOwner(chatId) && isActiveUser()) || isClaimStaff();
       match /messages/{messageId} {
-        allow read: if isOwner(chatId) || isAdminOrStaff();
-        allow create: if (isOwner(chatId) && isActiveUser() && request.resource.data.senderId == request.auth.uid) || isAdminOrStaff();
-        allow update, delete: if isAdminOrStaff();
+        allow read: if isOwner(chatId) || isClaimStaff();
+        allow create: if (isOwner(chatId) && isActiveUser() && request.resource.data.senderId == request.auth.uid) || isClaimStaff();
+        allow update, delete: if isClaimStaff();
       }
     }
 

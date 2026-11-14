@@ -65,9 +65,9 @@ describe('JOB: each action after the 30_ update split; mixed updates denied', ()
     await prep(hired({ status: 'Completed' }));
     await assertFails(updateDoc(doc(user('poster'), 'jobs/j1'), { employerRated: true, completionCode: '000000' }));
   });
-  it('JOB-10 [MUST-ALLOW] today\'s admin panel identity (users doc isAdmin, no claim) can still cancel a job (phase-2 dependency)', async () => {
+  it('JOB-10 a users doc isAdmin without a claim cannot cancel a job', async () => {
     await prep(hired({ status: 'In Progress' }), { 'users/staff1': userProfile('staff1', { isAdmin: true, role: 'admin' }) });
-    await assertSucceeds(updateDoc(doc(user('staff1'), 'jobs/j1'), { status: 'Cancelled', adminNote: 'refunded' }));
+    await assertFails(updateDoc(doc(user('staff1'), 'jobs/j1'), { status: 'Cancelled', adminNote: 'refunded' }));
   });
 });
 
