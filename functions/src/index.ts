@@ -17,6 +17,7 @@ import { subscribeWithBalance as runSubscribe } from './subscribe';
 import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
 import { jobAction as runJobAction } from './jobs';
 import { staffClaimsOnly, staffOps as runStaffOps } from './staff_ops';
+import { syncStaffAccess as runSyncStaffAccess } from './staff_access';
 import { awardPoints as runAwardPoints } from './points';
 import type { MoneyDeps } from './money';
 
@@ -256,6 +257,26 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
+
+/** Provision a workspace Auth user and replace their custom claims. Caller authority is the token only. */
+export const syncStaffAccess = onCall(
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 30, maxInstances: 10 },
+  async (req) => {
+    try {
+      return await runSyncStaffAccess({
+        callerUid: req.auth?.uid,
+        callerToken: req.auth?.token as Record<string, unknown> | undefined,
+        data: req.data,
+        auth: getAuth(),
+        db: getFirestore(),
+      });
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('syncStaffAccess failed', { detail: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      throw new HttpsError('internal', 'Staff access could not be synced.');
+    }
+  },
+);
 
 /** Staff / P2P-agent money ops. createManualWithdrawal reuses processWithdrawal (fee, verified wallet, Solana send). */
 export const staffOps = onCall(

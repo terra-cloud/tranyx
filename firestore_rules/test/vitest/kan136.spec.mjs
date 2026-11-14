@@ -301,18 +301,18 @@ describe('KAN-136-B MUST-ALLOW: real admin provisioning keeps working', () => {
     await deskSeed();
     await assertSucceeds(setDoc(doc(adminClaim(), 'p2p_agents/p2p'), { isActive: false, updatedAt: now() }, { merge: true }));
   });
-  it('KAN-136-M5 [MUST-ALLOW] properly provisioned agent (admin-written p2p_agents doc, gmail login) keeps desk access: reads, list, reply, desk-field merge, notifications', async () => {
+  it('KAN-136-M5 an admin-written p2p_agents doc without a claim does not grant desk access', async () => {
     await deskSeed();
     const db = user('p2p');
     for (const [op, fn] of Object.entries(READS)) {
-      try { await assertSucceeds(fn(db)); } catch (e) { throw new Error(`${op}: ${e.message}`); }
+      try { await assertFails(fn(db)); } catch (e) { throw new Error(`${op}: ${e.message}`); }
     }
-    await assertSucceeds(addDoc(collection(db, 'support_chats/victim/messages'), { senderId: 'p2p', senderName: 'Agent', content: 'hi', createdAt: now(), isStaff: true, agentEmail: 'p2p@gmail.com' }));
-    await assertSucceeds(setDoc(doc(db, 'support_chats/victim'), { status: 'active', assignedAgentId: 'p2p', assignedAgentName: 'Agent', updatedAt: now() }, { merge: true }));
+    await assertFails(addDoc(collection(db, 'support_chats/victim/messages'), { senderId: 'p2p', senderName: 'Agent', content: 'hi', createdAt: now(), isStaff: true, agentEmail: 'p2p@gmail.com' }));
+    await assertFails(setDoc(doc(db, 'support_chats/victim'), { status: 'active', assignedAgentId: 'p2p', assignedAgentName: 'Agent', updatedAt: now() }, { merge: true }));
   });
-  it('KAN-136-M6 [MUST-ALLOW] admin-claim agent created via M1 then has desk access', async () => {
+  it('KAN-136-M6 an agent doc written by an admin claim does not by itself grant desk access', async () => {
     await deskSeed();
     await setDoc(doc(adminClaim(), 'p2p_agents/newAgent'), agentDoc('newAgent', 'new@gmail.com'), { merge: true });
-    await assertSucceeds(getDoc(doc(user('newAgent'), 'support_chats/victim')));
+    await assertFails(getDoc(doc(user('newAgent'), 'support_chats/victim')));
   });
 });

@@ -42,9 +42,10 @@
       return exists(path) && get(path).data.get('isActive', false) == true;
     }
 
-    // Helper to check if the user is an admin, staff member, or registered P2P agent
+    // Desk access is a custom claim only. A client-written users doc or an active p2p_agents
+    // doc does not grant it, and neither does the text of an email address.
     function isAdminOrStaff() {
-      return isAdminTokenOrEmail() || (isAuthenticated() && (isUserAdminInDoc() || isP2pAgentInDoc()));
+      return isClaimStaff();
     }
 
     // Server-issued admin custom claim only. role=agent/staff, a users-doc flag, or an active

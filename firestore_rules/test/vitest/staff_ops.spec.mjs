@@ -25,7 +25,8 @@ describe('staff / P2P agent balance writes are callable-only', () => {
     await seed(base);
     await assertFails(updateDoc(doc(user('staff1'), 'users/victim'), { tyxBalance: 1 }));
     await assertFails(updateDoc(doc(adminClaim(), 'users/victim'), { tyxBalance: 1 }));
-    await assertSucceeds(updateDoc(doc(user('agent1'), 'users/victim'), { banned: false, headline: 'ok' }));
+    await assertFails(updateDoc(doc(user('agent1'), 'users/victim'), { banned: false, headline: 'ok' }));
+    await assertSucceeds(updateDoc(doc(user('claimAgent', { role: 'agent' }), 'users/victim'), { banned: false, headline: 'ok' }));
     await assertSucceeds(setDoc(doc(adminClaim(), 'users/zero'), userProfile('zero', { tyxBalance: 0 })));
   });
   it('staff_audit_log: admin claim reads, agents and doc-flag staff do not, nobody writes from a client', async () => {
