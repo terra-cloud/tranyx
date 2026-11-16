@@ -703,14 +703,14 @@ service cloud.firestore {
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
           !(resource.data.status in ['Booked', 'Rented', 'On the way to Rentee', 'Returning', 'Active']) &&
-          (request.resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Awaiting Signature', 'awaiting signature'] ||
+          (request.resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Awaiting Signature', 'awaiting signature', 'Archived', 'archived'] ||
            request.resource.data.status == resource.data.status) &&
           (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['priceDaily', 'price12h', 'priceWeekly', 'priceMonthly']) ||
            isValidVehiclePricing(request.resource.data)) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             // Identity & metadata
             'id', 'hostName', 'hostPhotoUrl', 'acceptingBookings', 'status',
-            'isListingFeeWaived', 'createdAt', 'updatedAt',
+            'isListingFeeWaived', 'listingFeePaid', 'areaKey', 'createdAt', 'updatedAt',
             // Vehicle specs
             'brand', 'model', 'vehicleModel', 'year', 'type', 'vehicleType',
             'plateNumber', 'transmission', 'fuelType', 'seatingCapacity',
@@ -798,10 +798,10 @@ service cloud.firestore {
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
         );
-        allow delete: if false;
+        allow delete: if (isActiveUser() && get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid) || isAdminOrStaff();
       }
 
-      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Archived', 'archived'])) || isAdminOrStaff();
 
       match /questions/{questionId} {
         allow read: if !isPartnerToken();
@@ -931,7 +931,8 @@ service cloud.firestore {
           'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl',
           'creatorName', 'creatorType', 'createdAt', 'updatedAt',
           'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
-          'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
+          'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent',
+          'areaKey', 'listingFeePaid'
         ])) ||
         // 1b. Creator (Employer): Resetting, re-opening or cancelling an unacknowledged or expired job
         (isCreator &&
@@ -1003,7 +1004,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
           get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
         );
-        allow delete: if false;
+        allow delete: if (isActiveUser() && get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid) || isAdminOrStaff();
       }
 
       // A creator can't delete a job that already has payout/fee records: the tx docs would outlive
@@ -1171,12 +1172,14 @@ service cloud.firestore {
         // 1. Host (Property Owner): Can update property details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
-          (resource.data.status == 'Available' || resource.data.status == 'available' || resource.data.status == 'Not Accepting Bookings') &&
+          (resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Archived', 'archived']) &&
+          (request.resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Awaiting Signature', 'awaiting signature', 'Archived', 'archived'] ||
+           request.resource.data.status == resource.data.status) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             // Identity & metadata
             'id', 'hostName', 'hostPhotoUrl', 'title', 'type', 'category',
             'propertyType', 'description', 'status', 'acceptingBookings',
-            'isListingFeeWaived', 'createdAt', 'updatedAt',
+            'isListingFeeWaived', 'listingFeePaid', 'areaKey', 'createdAt', 'updatedAt',
             // Pricing & deposit
             'pricePerMonth', 'priceMonthly', 'priceWeekly', 'priceDaily',
             'nightlyPrice', 'weeklyDiscount', 'monthlyDiscount', 'cleaningFee',
@@ -1198,6 +1201,7 @@ service cloud.firestore {
             'rentalDurationType', 'rentalMultiplier', 'startDate', 'endDate', 
             'totalCost', 'baseRentAmount', 'bookingFee', 
             'customerPlatformFeeRate', 'hostCommissionRate', 'renteeSignatureName', 
+            'signatureHash', 'renteeLicenseNumber',
             'signedAt', 'currentRequestId', 'allowChat', 'licenseNumber', 
             'verificationSelfieUrl', 'verificationGovtIdUrl', 'verificationStatus', 
             'hostIsVerified', 'hostVerificationStatus', 'hostVerificationTier', 
@@ -1253,10 +1257,10 @@ service cloud.firestore {
         allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' &&
           get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
-        allow delete: if false;
+        allow delete: if (isActiveUser() && get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid) || isAdminOrStaff();
       }
 
-      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Archived', 'archived'])) || isAdminOrStaff();
 
       match /questions/{questionId} {
         allow read: if !isPartnerToken();
