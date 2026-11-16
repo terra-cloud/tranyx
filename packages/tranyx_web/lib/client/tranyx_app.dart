@@ -8782,8 +8782,13 @@ class TranyxAppState extends State<TranyxApp> {
             ]),
           ]),
 
-        // Mobile bottom nav
-        if (!isCurrentJobTrackingActive) BottomNavComponent(state: this),
+        // Mobile bottom nav (hidden in listing/editing wizards to prevent covering submit actions)
+        if (!isCurrentJobTrackingActive &&
+            !showListVehicleModal &&
+            !showListPropertyModal &&
+            !showEditVehicleModal &&
+            !showEditPropertyModal)
+          BottomNavComponent(state: this),
 
         if (!isCurrentJobTrackingActive) const NyxHelpPanel(),
 

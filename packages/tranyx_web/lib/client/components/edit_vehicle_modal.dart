@@ -1268,11 +1268,11 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                     classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-medium',
                     [Component.text(_error!)],
                   ),
-                div(classes: 'flex items-center justify-between w-full', [
+                div(classes: 'flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 w-full', [
                   if (_multiStep && _step > 1)
                     button(
                       classes:
-                          'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
+                          'w-full sm:w-auto px-6 py-3 sm:py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800 text-zinc-300" : "border-zinc-300 hover:bg-zinc-50 text-zinc-700"} transition-colors cursor-pointer bg-transparent',
                       events: {
                         'click': (e) {
                           final prevStep = _step - 1;
@@ -1283,19 +1283,19 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
                       [Component.text('Back')],
                     )
                   else
-                    div([]),
+                    div(classes: 'hidden sm:block', []),
 
                   if (_multiStep && _step < 3)
                     button(
                       classes:
-                          'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
+                          'w-full sm:w-auto px-8 py-3 sm:py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 outline-none cursor-pointer',
                       events: {'click': (e) => _handleNext()},
                       [Component.text('Continue')],
                     )
                   else
                     button(
                       classes:
-                          'px-8 py-2 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20',
+                          'w-full sm:w-auto px-8 py-3.5 sm:py-2 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 border-0 outline-none cursor-pointer shadow-lg shadow-indigo-500/20 text-base sm:text-sm',
                       events: {'click': (e) => _publish()},
                       disabled: _isSubmitting,
                       [
@@ -1372,7 +1372,11 @@ class _EditVehicleModalState extends State<EditVehicleModalComponent> {
 
       final file = files.first;
       final token = SessionStorage.idToken;
-      final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+      final url = await ImgBBService(
+        currentFirebaseConfig,
+        idToken: token,
+        onTokenRefresh: component.appState.handleTokenRefresh,
+      ).uploadImageBytes(file.bytes, file.name);
 
       if (url != null) {
         setState(() {

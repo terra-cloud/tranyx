@@ -2462,8 +2462,14 @@ class FirestoreService {
   // ── Vehicle Rentals ──────────────────────────────────────────
 
   /// Charges the (server-computed) listing fee after the listing doc exists. On failure the new
-  /// listing is removed so no unpaid listing is left behind.
+  /// listing is removed so no unpaid listing is left behind. When listingFeeRate is 0% (free listing),
+  /// no charge is needed.
   Future<void> _chargeListingFee(String kind, String collection, String listingId) async {
+    final feeConfig = await getPlatformFeeConfig();
+    if (feeConfig.listingFeeRate <= 0) {
+      // 0% Free Listing - no fee to charge
+      return;
+    }
     try {
       await callMoney('listingFee', {'kind': kind, 'listingId': listingId, 'op': 'charge'});
     } catch (_) {
@@ -2476,6 +2482,10 @@ class FirestoreService {
 
   /// Refunds a paid listing fee (server checks the fee record; no-op when nothing was paid).
   Future<void> _refundListingFee(String kind, String listingId) async {
+    final feeConfig = await getPlatformFeeConfig();
+    if (feeConfig.listingFeeRate <= 0) {
+      return;
+    }
     try {
       await callMoney('listingFee', {'kind': kind, 'listingId': listingId, 'op': 'refund'});
     } catch (_) {}
@@ -2498,27 +2508,20 @@ class FirestoreService {
       throw Exception('Host profile not found.');
     }
 
-
+    if (idToken == null || idToken!.isEmpty) {
+      await _refreshToken();
+    }
 
     // Post rental document
     final url = '$_firestoreBase/rentals';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
     final split = splitListingLocation(rental.toMap());
-    final req = await _client.post(
-      Uri.parse(url),
-      headers: headers,
-      body: jsonEncode(_toFirestoreFields(split.publicFields)),
+    final result = await _post(
+      url,
+      _toFirestoreFields(split.publicFields),
+      idToken: idToken,
+      onTokenRefresh: _refreshToken,
     );
 
-    if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map;
-      final err = data['error'] as Map? ?? {};
-      throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
-    }
-
-    final result = jsonDecode(req.body) as Map;
     final docId = _docId(result);
     await _writePrivateListingLocation('rentals/$docId', split.privateFields);
     await _chargeListingFee('vehicle', 'rentals', docId);
@@ -2543,33 +2546,22 @@ class FirestoreService {
       throw Exception(pricingValidation.errorMessage);
     }
 
-    final brand = rentalMap['brand'] as String? ?? '';
-    final model = rentalMap['model'] as String? ?? '';
-    final year = rentalMap['year']?.toString() ?? '';
-
     final host = await getUser(hostId);
     if (host == null) throw Exception('Host profile not found.');
 
-
-
-    final url = '$_firestoreBase/rentals';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final split = splitListingLocation(rentalMap);
-    final req = await _client.post(
-      Uri.parse(url),
-      headers: headers,
-      body: jsonEncode(_toFirestoreFields(split.publicFields)),
-    );
-
-    if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map;
-      final err = data['error'] as Map? ?? {};
-      throw FirebaseException(err['message'] as String? ?? 'Create rental failed', req.statusCode);
+    if (idToken == null || idToken!.isEmpty) {
+      await _refreshToken();
     }
 
-    final result = jsonDecode(req.body) as Map;
+    final url = '$_firestoreBase/rentals';
+    final split = splitListingLocation(rentalMap);
+    final result = await _post(
+      url,
+      _toFirestoreFields(split.publicFields),
+      idToken: idToken,
+      onTokenRefresh: _refreshToken,
+    );
+
     final docId = _docId(result);
     await _writePrivateListingLocation('rentals/$docId', split.privateFields);
     await _chargeListingFee('vehicle', 'rentals', docId);
@@ -4104,25 +4096,20 @@ class FirestoreService {
 
 
 
-    // Post property document
-    final url = '$_firestoreBase/properties';
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (idToken != null) headers['Authorization'] = 'Bearer $idToken';
-
-    final split = splitListingLocation(property.toMap());
-    final req = await _client.post(
-      Uri.parse(url),
-      headers: headers,
-      body: jsonEncode(_toFirestoreFields(split.publicFields)),
-    );
-
-    if (req.statusCode >= 400) {
-      final data = jsonDecode(req.body) as Map;
-      final err = data['error'] as Map? ?? {};
-      throw FirebaseException(err['message'] as String? ?? 'Create property rental failed', req.statusCode);
+    if (idToken == null || idToken!.isEmpty) {
+      await _refreshToken();
     }
 
-    final result = jsonDecode(req.body) as Map;
+    // Post property document
+    final url = '$_firestoreBase/properties';
+    final split = splitListingLocation(property.toMap());
+    final result = await _post(
+      url,
+      _toFirestoreFields(split.publicFields),
+      idToken: idToken,
+      onTokenRefresh: _refreshToken,
+    );
+
     final docId = _docId(result);
     await _writePrivateListingLocation('properties/$docId', split.privateFields);
     await _chargeListingFee('property', 'properties', docId);
