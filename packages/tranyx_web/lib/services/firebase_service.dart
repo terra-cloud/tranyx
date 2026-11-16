@@ -640,11 +640,22 @@ class FirestoreService {
 
   Future<String?> _refreshToken() async {
     if (onTokenRefresh != null) {
-      final newToken = await onTokenRefresh!();
-      if (newToken != null) {
-        idToken = newToken;
-        return newToken;
-      }
+      try {
+        final newToken = await onTokenRefresh!();
+        if (newToken != null && newToken.isNotEmpty) {
+          idToken = newToken;
+          return newToken;
+        }
+      } catch (_) {}
+    }
+    final rt = SessionStorage.refreshToken;
+    if (rt != null && rt.isNotEmpty) {
+      try {
+        final fresh = await FirebaseAuthService().refreshIdToken(rt);
+        SessionStorage.updateIdToken(fresh);
+        idToken = fresh;
+        return fresh;
+      } catch (_) {}
     }
     return null;
   }
@@ -921,7 +932,7 @@ class FirestoreService {
             Uri.parse(url),
             headers: {
               'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
+              if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
               if (appCheck != null && appCheck.isNotEmpty) 'X-Firebase-AppCheck': appCheck,
             },
             body: jsonEncode({'data': data}),
@@ -6136,7 +6147,7 @@ class FirestoreService {
             Uri.parse(url),
             headers: {
               'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
+              if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
               if (appCheck != null && appCheck.isNotEmpty) 'X-Firebase-AppCheck': appCheck,
             },
             body: jsonEncode({'data': data}),
@@ -6372,10 +6383,40 @@ class ImageUploadException implements Exception {
 
 class FirebaseStorageService {
   final FirebaseConfig? config;
-  final String? idToken;
+  String? idToken;
   final Future<String?> Function()? onTokenRefresh;
 
   FirebaseStorageService(this.config, {this.idToken, this.onTokenRefresh});
+
+  Future<String?> _refreshToken() async {
+    if (onTokenRefresh != null) {
+      try {
+        final newToken = await onTokenRefresh!();
+        if (newToken != null && newToken.isNotEmpty) {
+          idToken = newToken;
+          return newToken;
+        }
+      } catch (_) {}
+    }
+    final rt = SessionStorage.refreshToken;
+    if (rt != null && rt.isNotEmpty) {
+      try {
+        final fresh = await FirebaseAuthService().refreshIdToken(rt);
+        SessionStorage.updateIdToken(fresh);
+        idToken = fresh;
+        return fresh;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<String?> _getToken() async {
+    var token = idToken;
+    if (token != null && token.isNotEmpty) return token;
+    token = SessionStorage.idToken;
+    if (token != null && token.isNotEmpty) return token;
+    return await _refreshToken();
+  }
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {
     // 1. Client-side input validation
@@ -6395,11 +6436,14 @@ class FirebaseStorageService {
       throw ImageUploadException('Unsupported file format (.$ext). Please upload a PNG, JPG, or JPEG image.');
     }
 
-    if (idToken == null) {
+    final activeToken = await _getToken();
+    if (activeToken == null || activeToken.isEmpty) {
       throw const ImageUploadException('Sign in to upload images.');
     }
+
+    // 2. Primary: Upload via server-side Cloud Function proxy
     try {
-      final res = await FirestoreService(idToken, onTokenRefresh).callCloudFunction(
+      final res = await FirestoreService(activeToken, onTokenRefresh ?? _refreshToken).callCloudFunction(
         'uploadImageProxy',
         {
           'imageBase64': base64Encode(bytes),
@@ -6412,12 +6456,74 @@ class FirebaseStorageService {
       if (url is String && url.startsWith('https://')) return url;
       throw const ImageUploadException('Image upload did not return a URL.');
     } on CloudFunctionException catch (e) {
+      if (e.status == 'INVALID_ARGUMENT') {
+        throw ImageUploadException(e.message);
+      }
+      // Fallback: Direct Firebase Storage REST upload if Cloud Function fails
+      final directUrl = await _uploadDirectToStorage(bytes, cleanFilename, activeToken);
+      if (directUrl != null && directUrl.startsWith('https://')) return directUrl;
       throw ImageUploadException(e.message);
     } on ImageUploadException {
       rethrow;
     } catch (_) {
+      final directUrl = await _uploadDirectToStorage(bytes, cleanFilename, activeToken);
+      if (directUrl != null && directUrl.startsWith('https://')) return directUrl;
       throw const ImageUploadException('Image upload failed. Please try again.');
     }
+  }
+
+  Future<String?> _uploadDirectToStorage(List<int> bytes, String cleanFilename, String token) async {
+    try {
+      final bucket = (config?.storageBucket != null && config!.storageBucket.isNotEmpty)
+          ? config!.storageBucket
+          : currentFirebaseConfig.storageBucket;
+      if (bucket.isEmpty) return null;
+
+      final uid = SessionStorage.uid ?? 'anonymous';
+      final dotIdx = cleanFilename.lastIndexOf('.');
+      final ext = dotIdx != -1 ? cleanFilename.substring(dotIdx + 1).toLowerCase() : 'jpg';
+      final mimeType = ext == 'png'
+          ? 'image/png'
+          : ext == 'webp'
+              ? 'image/webp'
+              : ext == 'gif'
+                  ? 'image/gif'
+                  : 'image/jpeg';
+
+      final safeName = cleanFilename.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '').replaceAll(RegExp(r'[^\w.-]+'), '_');
+      final path = 'uploads/$uid/${DateTime.now().millisecondsSinceEpoch}_$safeName.$ext';
+      final url = 'https://firebasestorage.googleapis.com/v0/b/$bucket/o?uploadType=media&name=${Uri.encodeQueryComponent(path)}';
+
+      Future<http.Response> post(String tok) {
+        return _client.post(
+          Uri.parse(url),
+          headers: {
+            'Content-Type': mimeType,
+            'Authorization': 'Bearer $tok',
+          },
+          body: bytes,
+        ).timeout(const Duration(seconds: 30));
+      }
+
+      var res = await post(token);
+      if (res.statusCode == 401) {
+        final fresh = await _refreshToken();
+        if (fresh != null) res = await post(fresh);
+      }
+
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final downloadToken = data['downloadTokens'] as String?;
+        final name = data['name'] as String? ?? path;
+        final encodedName = Uri.encodeComponent(name);
+        if (downloadToken != null && downloadToken.isNotEmpty) {
+          final firstToken = downloadToken.split(',').first.trim();
+          return 'https://firebasestorage.googleapis.com/v0/b/$bucket/o/$encodedName?alt=media&token=$firstToken';
+        }
+        return 'https://firebasestorage.googleapis.com/v0/b/$bucket/o/$encodedName?alt=media';
+      }
+    } catch (_) {}
+    return null;
   }
 }
 
