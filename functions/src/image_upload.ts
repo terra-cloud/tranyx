@@ -1,30 +1,31 @@
 import { HttpsError } from 'firebase-functions/https';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 /**
- * Server-side image upload proxy (replaces browser -> api.imgbb.com).
+ * Server-side image upload proxy to Firebase Storage.
  *
- * Why: imgbb's API sends no usable CORS answer for its error / gateway-timeout responses, so the browser
- * reports every failure as "blocked by CORS policy" and the real reason is hidden. The IMGBB key was also
- * shipped to every visitor inside the web bundle. The browser now sends the image to this callable
- * (signed-in users only); the key stays in Secret Manager and the response is a clean URL or a clear error.
+ * Uploads are verified (file size, MIME sniff), rate-limited per user, and stored
+ * directly in Firebase Storage. Returns a permanent download URL with a download token.
  */
 
 export const MAX_IMAGE_BYTES = 7 * 1024 * 1024; // callable request bodies are capped at 10 MB (base64 adds ~33%)
 export const HOURLY_UPLOADS = 60;
-export const UPLOAD_TIMEOUT_MS = 25_000;
 
-export type FetchLike = (url: string, init: { method: string; body: string; headers: Record<string, string>; signal: AbortSignal }) => Promise<{
-  ok: boolean;
-  status: number;
-  text(): Promise<string>;
-}>;
+export interface StorageFileLike {
+  save(data: Buffer, options?: { metadata?: { contentType?: string; metadata?: Record<string, string> } }): Promise<void>;
+}
+
+export interface StorageBucketLike {
+  name: string;
+  file(path: string): StorageFileLike;
+}
 
 export interface UploadDeps {
   db: Firestore;
-  fetchFn: FetchLike;
-  apiKey: string;
+  bucket: StorageBucketLike;
   now: () => number;
+  randomId?: () => string;
 }
 
 export function sniffImage(b: Buffer): 'jpeg' | 'png' | 'gif' | 'webp' | null {
@@ -57,44 +58,45 @@ export function parseUploadInput(data: unknown): ParsedUpload {
 export async function uploadImage(deps: UploadDeps, uid: string | undefined, data: unknown): Promise<{ url: string }> {
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to upload images.');
   const input = parseUploadInput(data);
-  if (!deps.apiKey) throw new HttpsError('failed-precondition', 'Image upload is not configured.');
 
   // Per-user hourly cap (counts attempts, so a stuck client cannot hammer the host).
-  const bucket = Math.floor(deps.now() / 3_600_000);
-  const ref = deps.db.doc(`image_upload_limits/${uid}_${bucket}`);
+  const bucketHour = Math.floor(deps.now() / 3_600_000);
+  const ref = deps.db.doc(`image_upload_limits/${uid}_${bucketHour}`);
   const over = await deps.db.runTransaction(async (t) => {
     const snap = await t.get(ref);
     const n = (snap.exists ? (snap.get('count') as number) : 0) || 0;
     if (n >= HOURLY_UPLOADS) return true;
-    t.set(ref, { uid, count: FieldValue.increment(1), bucket }, { merge: true });
+    t.set(ref, { uid, count: FieldValue.increment(1), bucket: bucketHour }, { merge: true });
     return false;
   });
   if (over) throw new HttpsError('resource-exhausted', 'Too many uploads. Please try again later.');
 
-  const body = new URLSearchParams({ key: deps.apiKey, image: input.base64 });
-  if (input.name) body.set('name', input.name);
-  let res;
+  const imageKind = sniffImage(input.bytes);
+  if (!imageKind) throw new HttpsError('invalid-argument', 'Only JPEG, PNG, GIF or WebP images can be uploaded.');
+
+  const ext = imageKind === 'jpeg' ? 'jpg' : imageKind;
+  const mimeType = `image/${imageKind}`;
+  const token = deps.randomId ? deps.randomId() : randomUUID();
+  const hex = randomBytes(4).toString('hex');
+  const safeName = input.name ? `${input.name}_${hex}.${ext}` : `${deps.now()}_${hex}.${ext}`;
+  const filePath = `uploads/${uid}/${safeName}`;
+
   try {
-    res = await deps.fetchFn('https://api.imgbb.com/1/upload', {
-      method: 'POST',
-      body: body.toString(),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+    const file = deps.bucket.file(filePath);
+    await file.save(input.bytes, {
+      metadata: {
+        contentType: mimeType,
+        metadata: {
+          firebaseStorageDownloadTokens: token,
+        },
+      },
     });
   } catch {
-    throw new HttpsError('unavailable', 'The image host did not respond. Please try again.');
+    throw new HttpsError('unavailable', 'Firebase Storage is unavailable. Please try again.');
   }
-  const text = await res.text().catch(() => '');
-  let json: any = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    /* not JSON: gateway page */
-  }
-  const url = json?.data?.url ?? json?.data?.display_url;
-  if (res.ok && typeof url === 'string' && /^https:\/\//.test(url)) return { url };
-  // Never forward the host's body (it can echo the key). Map to a clear, fixed message.
-  if (res.status === 400 || res.status === 403) throw new HttpsError('failed-precondition', 'The image host rejected the upload (check the image service key).');
-  if (res.status === 429) throw new HttpsError('resource-exhausted', 'The image host is rate limiting uploads. Please try again shortly.');
-  throw new HttpsError('unavailable', 'The image host is unavailable. Please try again.');
+
+  const bucketName = deps.bucket.name || 'tranyx-app.firebasestorage.app';
+  const encodedPath = encodeURIComponent(filePath);
+  const url = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodedPath}?alt=media&token=${token}`;
+  return { url };
 }

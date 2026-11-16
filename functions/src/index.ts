@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 import { onCall, HttpsError } from 'firebase-functions/https';
 import { onSchedule } from 'firebase-functions/scheduler';
 import * as logger from 'firebase-functions/logger';
@@ -11,13 +12,14 @@ import { RpcChainReader } from './solana_chain';
 import { Web3SolanaPayer } from './solana';
 import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
 import { issueNonce, walletLink, walletSignIn, walletStatus, type WalletAuthDeps } from './wallet_auth';
-import { uploadImage, type FetchLike } from './image_upload';
+import { uploadImage } from './image_upload';
 import { runGeminiAssist } from './gemini';
 import { subscribeWithBalance as runSubscribe } from './subscribe';
 import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
 import { jobAction as runJobAction } from './jobs';
 import { staffClaimsOnly, staffOps as runStaffOps } from './staff_ops';
 import { syncStaffAccess as runSyncStaffAccess } from './staff_access';
+import { attributePartnerRevenue as runAttributePartnerRevenue, partnerAdmin as runPartnerAdmin, partnerDesk as runPartnerDesk } from './partner';
 import { awardPoints as runAwardPoints } from './points';
 import type { MoneyDeps } from './money';
 
@@ -29,6 +31,8 @@ const SOLANA_RPC_URL = defineString('SOLANA_RPC_URL', { default: 'https://api.de
 const SOLANA_USDT_MINT = defineString('SOLANA_USDT_MINT', { default: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' });
 /** Treasury PUBLIC key (never the secret). Empty = read system_config/treasury. */
 const SOLANA_TREASURY_PUBLIC_KEY = defineString('SOLANA_TREASURY_PUBLIC_KEY', { default: '' });
+/** Firebase Storage bucket for uploaded images. Default is tranyx-app.firebasestorage.app */
+const STORAGE_BUCKET = defineString('STORAGE_BUCKET', { default: 'tranyx-app.firebasestorage.app' });
 // App Check is enforced unless explicitly turned off in functions/.env.<projectId>.
 // Tokens are project-scoped. tranyx-admin is a separate Firebase project from the workspace
 // projects (tranyx-app production web+mobile, tranyx-dev, tranyx-uat). An App Check or Auth
@@ -188,8 +192,6 @@ export const walletAuthStatus = onCall(walletOpts, (req) =>
   guard('walletAuthStatus', () => walletStatus(walletDeps(), req.auth?.uid)));
 
 // ── Image upload proxy (see image_upload.ts) ────────────────────────────────────────────────────
-/** Secret Manager: `firebase functions:secrets:set IMGBB_API_KEY` per project. Not committed, never logged. */
-const IMGBB_API_KEY = defineSecret('IMGBB_API_KEY');
 /** Secret Manager: `firebase functions:secrets:set GEMINI_API_KEY` per project. The web bundle must not contain it. */
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
 
@@ -207,13 +209,15 @@ export const geminiAssist = onCall(
   },
 );
 
-/** Signed-in users upload a base64 image; the function posts it to imgbb server-side and returns { url }. */
+/** Signed-in users upload a base64 image; stored in Firebase Storage and returns { url }. */
 export const uploadImageProxy = onCall(
-  { enforceAppCheck: ENFORCE_APP_CHECK, secrets: [IMGBB_API_KEY], timeoutSeconds: 40, maxInstances: 10, memory: '512MiB' },
+  { enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 40, maxInstances: 10, memory: '512MiB' },
   async (req) => {
     try {
+      const bucketName = STORAGE_BUCKET.value() || undefined;
+      const bucket = bucketName ? getStorage().bucket(bucketName) : getStorage().bucket();
       return await uploadImage(
-        { db: getFirestore(), fetchFn: fetch as unknown as FetchLike, apiKey: IMGBB_API_KEY.value(), now: () => Date.now() },
+        { db: getFirestore(), bucket, now: () => Date.now() },
         req.auth?.uid,
         req.data,
       );
@@ -257,6 +261,54 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
+
+/** City partner provisioning, payout approval, and the super-admin overview. Admin claim only. */
+export const partnerAdmin = onCall(
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10 },
+  async (req) => {
+    try {
+      return await runPartnerAdmin({
+        callerUid: req.auth?.uid,
+        callerToken: req.auth?.token as Record<string, unknown> | undefined,
+        data: req.data,
+        auth: getAuth(),
+        db: getFirestore(),
+      });
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('partnerAdmin failed', { detail: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      throw new HttpsError('internal', 'The partner request could not be processed.');
+    }
+  },
+);
+
+/** Partner desk reads, masked directory, review, and statement CSV. Partners need a second factor. */
+export const partnerDesk = onCall(
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10 },
+  async (req) => {
+    try {
+      return await runPartnerDesk({
+        callerUid: req.auth?.uid,
+        callerToken: req.auth?.token as Record<string, unknown> | undefined,
+        data: req.data,
+        db: getFirestore(),
+      });
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('partnerDesk failed', { detail: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      throw new HttpsError('internal', 'The partner desk could not be opened.');
+    }
+  },
+);
+
+/** Tags settled rental and gig revenue to an area and writes the monthly payout draft. */
+export const attributePartnerRevenue = onSchedule(
+  { schedule: 'every 60 minutes', region: 'us-central1', timeoutSeconds: 300, memory: '256MiB' },
+  async () => {
+    const res = await runAttributePartnerRevenue(getFirestore());
+    logger.info('attributePartnerRevenue', res);
+  },
+);
 
 /** Provision a workspace Auth user and replace their custom claims. Caller authority is the token only. */
 export const syncStaffAccess = onCall(

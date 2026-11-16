@@ -74,9 +74,8 @@ user can sign in with either.
 
 ## Image upload proxy (`uploadImageProxy`)
 Signed-in users send `{ imageBase64, name? }` (JPEG/PNG/GIF/WebP sniffed by magic bytes, up to 7 MB, 60 per hour per user);
-the function posts it to imgbb with `IMGBB_API_KEY` from Secret Manager (`firebase functions:secrets:set IMGBB_API_KEY`)
-and returns `{ url }`. Host errors map to fixed messages; the host body and the key are never forwarded. The web client
-tries this first and falls back to the direct browser upload if the function is not deployed.
+the function stores it in Firebase Storage (bucket defined by `STORAGE_BUCKET`, defaults to `tranyx-app.firebasestorage.app`)
+and returns `{ url }` as a permanent Firebase Storage download URL. Storage errors map to fixed messages.
 
 ## Tests
 ```

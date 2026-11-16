@@ -32,7 +32,11 @@ String describeWalletError(Object e) {
   final raw = e.toString();
   if (raw.contains(walletAppRedirect)) return walletAppRedirect;
   final lower = raw.toLowerCase();
-  if (lower.contains('user rejected') || lower.contains('rejected the request') || lower.contains('4001') || lower.contains('declined') || lower.contains('denied')) {
+  if (lower.contains('user rejected') ||
+      lower.contains('rejected the request') ||
+      lower.contains('4001') ||
+      lower.contains('declined') ||
+      lower.contains('denied')) {
     return 'You declined the request in your wallet.';
   }
   final cleaned = raw.replaceFirst(RegExp(r'^(Exception:\s*|Error:\s*|JavaScriptError:\s*)+'), '').trim();
@@ -186,12 +190,14 @@ Future<void> signInWithEmailAndPasswordJs(Map<String, String> config, String ema
     for (final e in config.entries) {
       jsConfig.setProperty(e.key.toJS, e.value.toJS);
     }
-    await web.window.callMethod<JSPromise>(
-      'signInWithEmailAndPasswordJs'.toJS,
-      jsConfig,
-      email.toJS,
-      password.toJS,
-    ).toDart;
+    await web.window
+        .callMethod<JSPromise>(
+          'signInWithEmailAndPasswordJs'.toJS,
+          jsConfig,
+          email.toJS,
+          password.toJS,
+        )
+        .toDart;
   } catch (_) {}
 }
 
@@ -207,11 +213,13 @@ Future<String?> sendPhoneVerificationSmsJs(Map<String, String> config, String ph
     for (final e in config.entries) {
       jsConfig.setProperty(e.key.toJS, e.value.toJS);
     }
-    final res = await web.window.callMethod<JSPromise>(
-      'sendPhoneVerificationSmsJs'.toJS,
-      jsConfig,
-      phoneNumber.toJS,
-    ).toDart;
+    final res = await web.window
+        .callMethod<JSPromise>(
+          'sendPhoneVerificationSmsJs'.toJS,
+          jsConfig,
+          phoneNumber.toJS,
+        )
+        .toDart;
     if (res == null) return null;
     return (res as JSString).toDart;
   } catch (e) {
@@ -221,18 +229,19 @@ Future<String?> sendPhoneVerificationSmsJs(Map<String, String> config, String ph
 
 Future<bool> verifyPhoneSmsCodeJs(String verificationId, String code) async {
   try {
-    final res = await web.window.callMethod<JSPromise>(
-      'verifyPhoneSmsCodeJs'.toJS,
-      verificationId.toJS,
-      code.toJS,
-    ).toDart;
+    final res = await web.window
+        .callMethod<JSPromise>(
+          'verifyPhoneSmsCodeJs'.toJS,
+          verificationId.toJS,
+          code.toJS,
+        )
+        .toDart;
     if (res == null) return true;
     return (res as JSBoolean).toDart;
   } catch (e) {
     rethrow;
   }
 }
-
 
 void initFirebaseJs(Map<String, dynamic> config) {
   try {
@@ -295,8 +304,6 @@ String getUsdtMintAddress() {
   }
 }
 
-
-
 @JS('JSON.stringify')
 external JSString _jsStringify(JSAny? obj);
 
@@ -314,8 +321,8 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
       "params": [
         publicKey,
         {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
-        {"encoding": "jsonParsed"}
-      ]
+        {"encoding": "jsonParsed"},
+      ],
     });
     final optsLegacy = web.RequestInit(method: 'POST', body: bodyLegacy.toJS, headers: headers);
     final respLegacy = await web.window.fetch(rpc.toJS, optsLegacy).toDart;
@@ -331,8 +338,8 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
       "params": [
         publicKey,
         {"programId": "TokenzQdBNbMcHuCxQC6YYeeTJHGDLXci3jTF5tk726V"},
-        {"encoding": "jsonParsed"}
-      ]
+        {"encoding": "jsonParsed"},
+      ],
     });
     final opts2022 = web.RequestInit(method: 'POST', body: body2022.toJS, headers: headers);
     final resp2022 = await web.window.fetch(rpc.toJS, opts2022).toDart;
@@ -358,15 +365,15 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
           if (parsed == null) continue;
           final info = parsed['info'] as Map?;
           if (info == null) continue;
-          
+
           final mint = info['mint'] as String? ?? '';
           final tokenAmount = info['tokenAmount'] as Map?;
           if (tokenAmount == null) continue;
-          
+
           final amountStr = tokenAmount['uiAmountString'] as String? ?? '0';
           final decimals = tokenAmount['decimals'] as int? ?? 0;
           final amount = double.tryParse(amountStr) ?? 0.0;
-          
+
           if (amount > 0) {
             parsedTokens.add({
               'mint': mint,
@@ -382,33 +389,35 @@ Future<List<Map<String, dynamic>>?> getSolanaTokenCollectibles(String publicKey)
     parseAndAdd(decoded2022);
 
     final list = <Map<String, dynamic>>[];
-    await Future.wait(parsedTokens.map((token) async {
-      final mint = token['mint'] as String;
-      String? symbol;
-      String? name;
-      try {
-        final promise = web.window.callMethod<JSPromise>(
-          'getTokenMetadata'.toJS,
-          mint.toJS,
-          rpc.toJS,
-        );
-        final res = await promise.toDart;
-        if (res != null) {
-          final resStr = (res as JSString).toDart;
-          final meta = jsonDecode(resStr) as Map;
-          symbol = meta['symbol'] as String?;
-          name = meta['name'] as String?;
-        }
-      } catch (_) {}
+    await Future.wait(
+      parsedTokens.map((token) async {
+        final mint = token['mint'] as String;
+        String? symbol;
+        String? name;
+        try {
+          final promise = web.window.callMethod<JSPromise>(
+            'getTokenMetadata'.toJS,
+            mint.toJS,
+            rpc.toJS,
+          );
+          final res = await promise.toDart;
+          if (res != null) {
+            final resStr = (res as JSString).toDart;
+            final meta = jsonDecode(resStr) as Map;
+            symbol = meta['symbol'] as String?;
+            name = meta['name'] as String?;
+          }
+        } catch (_) {}
 
-      list.add({
-        'mint': mint,
-        'amount': token['amount'],
-        'decimals': token['decimals'],
-        'symbol': symbol ?? '',
-        'name': name ?? '',
-      });
-    }));
+        list.add({
+          'mint': mint,
+          'amount': token['amount'],
+          'decimals': token['decimals'],
+          'symbol': symbol ?? '',
+          'name': name ?? '',
+        });
+      }),
+    );
 
     return list;
   } catch (_) {
@@ -481,7 +490,7 @@ Future<double?> getEthereumBalance(String address) async {
       "jsonrpc": "2.0",
       "id": 1,
       "method": "eth_getBalance",
-      "params": [address, "latest"]
+      "params": [address, "latest"],
     });
     final headers = web.Headers();
     headers.set('Content-Type', 'application/json');
@@ -507,7 +516,7 @@ Future<double?> getSuiBalance(String address) async {
       "jsonrpc": "2.0",
       "id": 1,
       "method": "suix_getBalance",
-      "params": [address, "0x2::sui::SUI"]
+      "params": [address, "0x2::sui::SUI"],
     });
     final headers = web.Headers();
     headers.set('Content-Type', 'application/json');
@@ -566,16 +575,18 @@ Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amo
   try {
     final rpcUrl = getSolanaRpcUrl();
     final mint = usdtMint ?? getUsdtMintAddress();
-    final promise = web.window.callMethodVarArgs(
-      'sendUsdtPayment'.toJS,
-      [
-        fromAddress.toJS,
-        toAddress.toJS,
-        amountInUsdt.toJS,
-        rpcUrl.toJS,
-        mint.toJS,
-      ],
-    ) as JSPromise;
+    final promise =
+        web.window.callMethodVarArgs(
+              'sendUsdtPayment'.toJS,
+              [
+                fromAddress.toJS,
+                toAddress.toJS,
+                amountInUsdt.toJS,
+                rpcUrl.toJS,
+                mint.toJS,
+              ],
+            )
+            as JSPromise;
     final res = await promise.toDart;
     return (res as JSString).toDart;
   } catch (e) {
@@ -586,16 +597,32 @@ Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amo
 
 Future<String?> signSolanaMessage(String fromAddress, String message) async {
   try {
-    final res = await web.window.callMethod<JSPromise>(
-      'signSolanaMessage'.toJS,
-      fromAddress.toJS,
-      message.toJS,
-    ).toDart;
+    final res = await web.window
+        .callMethod<JSPromise>(
+          'signSolanaMessage'.toJS,
+          fromAddress.toJS,
+          message.toJS,
+        )
+        .toDart;
     return (res as JSString).toDart;
   } catch (e) {
     print("signSolanaMessage exception: $e");
     rethrow;
   }
+}
+
+String? readNyxHits(String userKey) {
+  try {
+    return web.window.localStorage.getItem('tranyx.nyx.hits.$userKey');
+  } catch (_) {
+    return null;
+  }
+}
+
+void writeNyxHits(String userKey, String json) {
+  try {
+    web.window.localStorage.setItem('tranyx.nyx.hits.$userKey', json);
+  } catch (_) {}
 }
 
 /// App Check (reCAPTCHA) token for callable requests. Returns null when [siteKey] is empty or

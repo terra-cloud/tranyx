@@ -4,7 +4,7 @@
 
     // Properties Collection (Anti-Exploitation: Host CANNOT alter pricing/rules once booked)
     match /properties/{propertyId} {
-      allow read: if true;
+      allow read: if !isPartnerToken() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
         !hasExactListingLocation(request.resource.data);
       
@@ -91,7 +91,7 @@
       );
 
       match /private/{docId} {
-        allow read: if isAuthenticated() && docId == 'location';
+        allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' &&
           get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
         allow delete: if false;
@@ -100,20 +100,20 @@
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
       match /questions/{questionId} {
-        allow read: if true;
-        allow write: if isActiveUser();
+        allow read: if !isPartnerToken();
+        allow write: if isActiveUser() && !isPartnerToken();
       }
 
       match /qna/{qnaId} {
-        allow read: if true;
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if !isPartnerToken();
+        allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
       }
     }
 
     // Property Requests Collection
     match /property_requests/{requestId} {
       // Same party rule as rental_requests. Public listing docs stay on /properties.
-      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data)) || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff. See requestPartyUpdateOk (20_workspace_rentals).
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/property_escrows/$(requestId))) || isAdminOrStaff();
@@ -134,13 +134,13 @@
 
     // Property History Collection
     match /property_history/{historyId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     // Contract Documents Collection (Custom Contract PDFs & Metadata)
     match /contract_documents/{docId} {
-      allow read: if true;
+      allow read: if !isPartnerToken();
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
       allow update: if isActiveUser() && (resource.data.hostId == request.auth.uid || isAdminOrStaff());
       allow delete: if isAdminOrStaff();

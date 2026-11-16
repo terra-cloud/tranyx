@@ -44,4 +44,4 @@ Enable Firebase AI Logic (Gemini Developer API, not a pasted Gemini API key) for
 2. App Check → the web app → **Firebase AI Logic** → **Enforce**. Production web already uses the reCAPTCHA Enterprise provider.
 3. Do not create a Gemini API key for this feature, and do not put one in GitHub or Secret Manager.
 
-The client calls `firebasevertexai.googleapis.com` with the existing Firebase web config and an App Check token. The model name is `gemini-flash-latest`.
+The client calls the Gemini Developer API on `firebasevertexai.googleapis.com` at `v1beta/projects/{project}/models/gemini-flash-latest:generateContent`, with the Firebase web apiKey and an App Check token. The `publishers/google/models` path is the Vertex route and returns 404 on this API.
