@@ -211,7 +211,7 @@ export const geminiAssist = onCall(
 
 /** Signed-in users upload a base64 image; stored in Firebase Storage and returns { url }. */
 export const uploadImageProxy = onCall(
-  { enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 40, maxInstances: 10, memory: '512MiB' },
+  { enforceAppCheck: false, timeoutSeconds: 40, maxInstances: 10, memory: '512MiB' },
   async (req) => {
     try {
       const bucketName = STORAGE_BUCKET.value() || undefined;
