@@ -134,8 +134,43 @@ service cloud.firestore {
     }
 
     // Custom-claim staff/agent/admin. A users doc or an active p2p_agents doc is not this.
+    // role=partner is not staff and is not in isAdminTokenOrEmail.
     function isClaimStaff() {
       return isAdminTokenOrEmail();
+    }
+
+    // City partner (TRAD-15). The claim is role=partner plus partnerId. It does not grant staff or admin.
+    function isPartnerToken() {
+      return isAuthenticated() && request.auth.token != null &&
+        'role' in request.auth.token && request.auth.token.role == 'partner' &&
+        'partnerId' in request.auth.token && request.auth.token.partnerId is string &&
+        request.auth.token.partnerId.size() > 0;
+    }
+
+    // Identity Platform MFA puts the second factor on the token. A partner without it matches nothing.
+    function partnerMfaOk() {
+      return request.auth.token.keys().hasAny(['firebase']) &&
+        request.auth.token.firebase.keys().hasAny(['sign_in_second_factor']) &&
+        (request.auth.token.firebase.sign_in_second_factor == 'totp' ||
+          request.auth.token.firebase.sign_in_second_factor == 'phone');
+    }
+
+    function partnerRecord() {
+      return get(/databases/$(database)/documents/partners/$(request.auth.token.partnerId)).data;
+    }
+
+    function isActivePartner() {
+      return isPartnerToken() && partnerMfaOk() &&
+        exists(/databases/$(database)/documents/partners/$(request.auth.token.partnerId)) &&
+        partnerRecord().get('status', '') == 'active' &&
+        partnerRecord().get('uid', '') == request.auth.uid &&
+        partnerRecord().get('renewalDate', 0) > request.time.toMillis();
+    }
+
+    // areaKey is the city or municipality slug. Listing and job location wins; user city is only a fallback in the revenue job.
+    function partnerCoversArea(areaKey) {
+      return isActivePartner() && areaKey is string && areaKey.size() > 0 &&
+        areaKey in partnerRecord().get('areaKeys', []);
     }
 
     // Booking request party. renterId is the escrow alias of renteeId; uid/userId are older request shapes.
@@ -637,7 +672,8 @@ service cloud.firestore {
 
     // Vehicle Rentals Collection (Anti-Exploitation: Host CANNOT alter pricing once booked)
     match /rentals/{rentalId} {
-      allow read: if true;
+      // Public for everyone except a partner token, which only reads its own areaKey.
+      allow read: if !isPartnerToken() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
         isValidVehiclePricing(request.resource.data) && !hasExactListingLocation(request.resource.data);
       
@@ -736,7 +772,7 @@ service cloud.firestore {
       );
 
       match /private/{docId} {
-        allow read: if isAuthenticated() && docId == 'location';
+        allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' && (
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
@@ -747,13 +783,13 @@ service cloud.firestore {
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
       match /questions/{questionId} {
-        allow read: if true;
-        allow write: if isActiveUser();
+        allow read: if !isPartnerToken();
+        allow write: if isActiveUser() && !isPartnerToken();
       }
 
       match /qna/{qnaId} {
-        allow read: if true;
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if !isPartnerToken();
+        allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
       }
     }
 
@@ -790,7 +826,7 @@ service cloud.firestore {
       // Participants (host, renter, or the rentee/renterId/uid aliases) and claim staff only.
       // A rentalId-only list is not a party constraint, so strangers cannot read a listing's requests.
       // Public listing docs stay on /rentals. Collection-group queries have no separate allow.
-      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data)) || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff.
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/rental_escrows/$(requestId))) || isAdminOrStaff();
@@ -798,14 +834,14 @@ service cloud.firestore {
 
     // Rental Extensions Collection
     match /rental_extensions/{extId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     // Rental History Collection
     match /rental_history/{historyId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     // Rental Escrows Collection (Dual-field support for renteeId & renterId)
@@ -920,7 +956,8 @@ service cloud.firestore {
 
     // Jobs Collection (Anti-Exploitation: Employer CANNOT alter terms once hired)
     match /jobs/{jobId} {
-      allow read: if true; // Publicly browse jobs
+      // Public for everyone except a partner token, which only reads its own areaKey.
+      allow read: if !isPartnerToken() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isActiveUser() && request.resource.data.creatorId == request.auth.uid &&
         !request.resource.data.keys().hasAny(['completionCode', 'verificationCode']) &&
         !hasExactListingLocation(request.resource.data);
@@ -940,7 +977,7 @@ service cloud.firestore {
 
       // Exact address and coordinates. Signed-in users only. The public job keeps addressPublic.
       match /private/{docId} {
-        allow read: if isAuthenticated() && docId == 'location';
+        allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' && (
           get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
           get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
@@ -997,14 +1034,14 @@ service cloud.firestore {
 
       // Subcollection: Questions (Public Q&A)
       match /questions/{questionId} {
-        allow read: if true;
-        allow write: if isActiveUser();
+        allow read: if !isPartnerToken();
+        allow write: if isActiveUser() && !isPartnerToken();
       }
 
       // Subcollection: QnA (Public Q&A alternative path)
       match /qna/{qnaId} {
-        allow read: if true;
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if !isPartnerToken();
+        allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
       }
     }
 
@@ -1105,7 +1142,7 @@ service cloud.firestore {
 
     // Properties Collection (Anti-Exploitation: Host CANNOT alter pricing/rules once booked)
     match /properties/{propertyId} {
-      allow read: if true;
+      allow read: if !isPartnerToken() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid &&
         !hasExactListingLocation(request.resource.data);
       
@@ -1192,7 +1229,7 @@ service cloud.firestore {
       );
 
       match /private/{docId} {
-        allow read: if isAuthenticated() && docId == 'location';
+        allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' &&
           get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
         allow delete: if false;
@@ -1201,20 +1238,20 @@ service cloud.firestore {
       allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
 
       match /questions/{questionId} {
-        allow read: if true;
-        allow write: if isActiveUser();
+        allow read: if !isPartnerToken();
+        allow write: if isActiveUser() && !isPartnerToken();
       }
 
       match /qna/{qnaId} {
-        allow read: if true;
-        allow write: if isActiveUser() || isAdminOrStaff();
+        allow read: if !isPartnerToken();
+        allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
       }
     }
 
     // Property Requests Collection
     match /property_requests/{requestId} {
       // Same party rule as rental_requests. Public listing docs stay on /properties.
-      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data));
+      allow read: if isClaimStaff() || (resource != null && isBookingRequestParty(resource.data)) || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
       // Created / deleted only by the bookingRequest callable (Admin SDK) or staff. See requestPartyUpdateOk (20_workspace_rentals).
       allow create, delete: if isAdminOrStaff();
       allow update: if (isActiveUser() && requestPartyUpdateOk(/databases/$(database)/documents/property_escrows/$(requestId))) || isAdminOrStaff();
@@ -1235,13 +1272,13 @@ service cloud.firestore {
 
     // Property History Collection
     match /property_history/{historyId} {
-      allow read: if isAuthenticated();
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow write: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     // Contract Documents Collection (Custom Contract PDFs & Metadata)
     match /contract_documents/{docId} {
-      allow read: if true;
+      allow read: if !isPartnerToken();
       allow create: if isActiveUser() && request.resource.data.hostId == request.auth.uid;
       allow update: if isActiveUser() && (resource.data.hostId == request.auth.uid || isAdminOrStaff());
       allow delete: if isAdminOrStaff();
@@ -1389,7 +1426,7 @@ service cloud.firestore {
 
     // Support Tickets Collections (Cross-platform compatibility)
     match /supportTickets/{ticketId} {
-      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff() || partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isValidTicketCreate() || isAdminOrStaff();
       allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
@@ -1400,7 +1437,7 @@ service cloud.firestore {
     }
 
     match /support_tickets/{ticketId} {
-      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff() || partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isValidTicketCreate() || isAdminOrStaff();
       allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
@@ -1413,7 +1450,7 @@ service cloud.firestore {
     // KAN-143: clients only create "flagged_for_ban" tickets about themselves (web index.html, mobile chat
     // views); the owner reads their own, staff do everything else.
     match /tickets/{ticketId} {
-      allow read: if isAuthenticated() && (resource.data.get('userId', '') == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource.data.get('userId', '') == request.auth.uid || isAdminOrStaff() || partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if (isActiveUser() &&
         request.resource.data.keys().hasOnly([
           'id', 'subject', 'title', 'userId', 'userName', 'chatId', 'reason', 'lastOffendingMessage',
@@ -1488,17 +1525,17 @@ service cloud.firestore {
     // P2P Agents Collection. Public read of QR credentials. Creating or editing an agent is an admin claim,
     // not a users-doc flag and not an existing agent document.
     match /p2p_agents/{agentId} {
-      allow read: if true;
+      allow read: if !isPartnerToken();
       allow write: if isClaimAdmin();
     }
 
     // Unified Requests Collection (Admin Portal: Enforces 3-Min Claim Limit & Single-Agent Lock)
     match /requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
+      allow create: if isAuthenticated() && !isPartnerToken();
       allow delete: if isAdminOrStaff();
       
-      allow update: if isAuthenticated() && (
+      allow update: if isAuthenticated() && !isPartnerToken() && (
         isAdminOrStaff() ||
         // 1. Agent accepting their assignment WITHIN 3 minutes
         (
@@ -1562,13 +1599,13 @@ service cloud.firestore {
 
     // Config Collection. Clients only read config/app_config; third-party API docs (e.g. config/imgbb) are admin only.
     match /config/{docId} {
-      allow read: if isClaimAdmin() || (isAuthenticated() && docId == 'app_config');
+      allow read: if isClaimAdmin() || (isAuthenticated() && !isPartnerToken() && docId == 'app_config');
       allow write: if isClaimAdmin();
     }
 
     // Platform Fees Collection (Admin managed). Client creates stay Function-only (KAN-136-P1 / D10).
     match /platform_fees/{feeId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow write: if isClaimAdmin();
     }
 
@@ -1581,23 +1618,23 @@ service cloud.firestore {
     }
 
     match /settings/{docId} {
-      allow read: if isAuthenticated() && docId == 'platform_fees';
+      allow read: if isAuthenticated() && !isPartnerToken() && docId == 'platform_fees';
       allow write: if isAdminOrStaff();
     }
 
     // Platform Config Collection (Job SLAs, Platform Settings - Admin managed)
     match /platform_config/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow write: if isClaimAdmin();
     }
     match /platform_config/{docId}/{subPath=**} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow write: if isClaimAdmin();
     }
 
     // Promos Collection
     match /promos/{promoId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && !isPartnerToken();
       allow create, delete: if isAdminOrStaff();
       allow update: if isAdminOrStaff() || 
         (isActiveUser() && 
@@ -1627,8 +1664,48 @@ service cloud.firestore {
 
     // Agent & Staff Realtime Presence Collection
     match /presence/{agentId} {
-      allow read: if true;
-      allow write: if isAuthenticated() && (isOwner(agentId) || isAdminOrStaff());
+      allow read: if !isPartnerToken();
+      allow write: if isAuthenticated() && !isPartnerToken() && (isOwner(agentId) || isAdminOrStaff());
+    }
+
+    // City Partner License (TRAD-15). Clients never write these. Partners read only their own rows.
+    match /partners/{partnerId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && partnerId == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /area_assignments/{areaKey} {
+      allow read: if isClaimAdmin();
+      allow write: if false;
+    }
+
+    match /partner_audit_log/{entryId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && resource.data.get('partnerId', '') == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /area_revenue/{entryId} {
+      allow read: if isClaimAdmin() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
+      allow write: if false;
+    }
+
+    match /area_revenue_index/{entryId} {
+      allow read, write: if false;
+    }
+
+    match /partner_statements/{statementId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && resource.data.get('partnerId', '') == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /partner_payouts/{payoutId} {
+      allow read: if isClaimAdmin() || (isActivePartner() && resource.data.get('partnerId', '') == request.auth.token.partnerId);
+      allow write: if false;
+    }
+
+    match /partner_config/{docId} {
+      allow read: if isClaimAdmin();
+      allow write: if false;
     }
 
 // >>> SOURCE: firestore_rules/99_footer.rules
@@ -1637,17 +1714,17 @@ service cloud.firestore {
     // ------------------------------------------------------------------------
 
     match /{path=**}/applications/{applicantId} {
-      allow read: if isActiveUser() || isAdminOrStaff();
+      allow read: if (isActiveUser() && !isPartnerToken()) || isAdminOrStaff();
     }
 
     match /{path=**}/questions/{questionId} {
-      allow read: if true;
-      allow write: if isActiveUser();
+      allow read: if !isPartnerToken();
+      allow write: if isActiveUser() && !isPartnerToken();
     }
 
     match /{path=**}/qna/{qnaId} {
-      allow read: if true;
-      allow write: if isActiveUser() || isAdminOrStaff();
+      allow read: if !isPartnerToken();
+      allow write: if ((isActiveUser() && !isPartnerToken()) || isAdminOrStaff());
     }
   }
 }
