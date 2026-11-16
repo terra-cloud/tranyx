@@ -1,4 +1,4 @@
-// ImgBBService uploads only through the signed-in uploadImageProxy callable.
+// FirebaseStorageService uploads only through the signed-in uploadImageProxy callable.
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -29,14 +29,18 @@ void main() {
 
   setUp(() {
     seen.clear();
-    proxyReply = () => http.Response(jsonEncode({'result': {'url': 'https://i.ibb.co/p/proxy.png'}}), 200, headers: _json);
+    proxyReply = () => http.Response(
+          jsonEncode({'result': {'url': 'https://firebasestorage.googleapis.com/v0/b/tranyx-app.firebasestorage.app/o/uploads%2Fproxy.png?alt=media&token=xyz'}}),
+          200,
+          headers: _json,
+        );
   });
 
   Future<String?> upload({String? token = 'tok'}) =>
-      ImgBBService(null, idToken: token).uploadImageBytes(png, 'pic.png');
+      FirebaseStorageService(null, idToken: token).uploadImageBytes(png, 'pic.png');
 
-  test('proxy answers: its URL is returned and imgbb is not called', () async {
-    expect(await upload(), 'https://i.ibb.co/p/proxy.png');
+  test('proxy answers: its URL is returned and external host is not called', () async {
+    expect(await upload(), 'https://firebasestorage.googleapis.com/v0/b/tranyx-app.firebasestorage.app/o/uploads%2Fproxy.png?alt=media&token=xyz');
     expect(seen, ['proxy']);
   });
 

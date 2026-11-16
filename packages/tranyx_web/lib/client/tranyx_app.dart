@@ -5569,7 +5569,7 @@ class TranyxAppState extends State<TranyxApp> {
       if (files.isEmpty) return;
       final file = files.first;
       final name = userProfile?.name ?? userName;
-      // Same ImgBB path (and key resolution) as every other web upload.
+      // Same storage upload path as every other web upload.
       final url = await ImgBBService(currentFirebaseConfig, idToken: SessionStorage.idToken, onTokenRefresh: _handleTokenRefresh)
           .uploadImageBytes(file.bytes, file.name);
       if (url == null || url.isEmpty) {

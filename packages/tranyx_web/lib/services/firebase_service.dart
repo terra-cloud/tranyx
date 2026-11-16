@@ -6361,7 +6361,7 @@ class GeminiService {
 typedef LocalNyxAIService = GeminiService;
 
 
-// ── ImgBB service ─────────────────────────────────────────────────────────────
+// ── Firebase Storage service ──────────────────────────────────────────────────
 class ImageUploadException implements Exception {
   final String message;
   const ImageUploadException(this.message);
@@ -6370,12 +6370,12 @@ class ImageUploadException implements Exception {
   String toString() => message;
 }
 
-class ImgBBService {
+class FirebaseStorageService {
   final FirebaseConfig? config;
   final String? idToken;
   final Future<String?> Function()? onTokenRefresh;
 
-  ImgBBService(this.config, {this.idToken, this.onTokenRefresh});
+  FirebaseStorageService(this.config, {this.idToken, this.onTokenRefresh});
 
   Future<String?> uploadImageBytes(List<int> bytes, String filename, {int? expiration}) async {
     // 1. Client-side input validation
@@ -6420,3 +6420,5 @@ class ImgBBService {
     }
   }
 }
+
+typedef ImgBBService = FirebaseStorageService;

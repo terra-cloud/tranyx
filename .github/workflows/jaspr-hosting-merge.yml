@@ -11,6 +11,7 @@ on:
       - 'functions/**'
       - 'firestore.rules'
       - 'firestore_rules/**'
+      - 'storage.rules'
       - 'packages/tranyx_web/firestore.indexes.json'
       - 'firebase.json'
       - '.github/workflows/jaspr-hosting-merge.yml'
@@ -35,6 +36,7 @@ jobs:
               - 'functions/**'
               - 'firestore.rules'
               - 'firestore_rules/**'
+              - 'storage.rules'
               - 'packages/tranyx_web/firestore.indexes.json'
               - '.github/workflows/jaspr-hosting-merge.yml'
 
@@ -114,7 +116,6 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/tranyx-app-sa.json
           SOLANA_TREASURY_SECRET_KEY: ${{ secrets.SOLANA_TREASURY_SECRET_KEY }}
-          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_AI_API_KEY }}
         run: |
           set -euo pipefail
@@ -140,14 +141,13 @@ jobs:
             return 0
           }
           sync_secret SOLANA_TREASURY_SECRET_KEY "$SOLANA_TREASURY_SECRET_KEY"
-          sync_secret IMGBB_API_KEY "$IMGBB_API_KEY"
           sync_secret GEMINI_API_KEY "$GEMINI_API_KEY"
 
-      - name: Deploy functions, rules, and indexes (prod)
+      - name: Deploy functions, rules, indexes, and storage (prod)
         if: steps.filter.outputs.backend == 'true' && github.ref_name == 'main'
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/tranyx-app-sa.json
-        run: npx --yes firebase-tools@15.5.1 deploy --only functions,firestore:rules,firestore:indexes --project tranyx-app
+        run: npx --yes firebase-tools@15.5.1 deploy --only functions,firestore:rules,firestore:indexes,storage --project tranyx-app
 
       # Default Hosting site of project tranyx-app, live channel.
       # Site ID is tranyx-app. The live URLs are https://tranyx-app.web.app
