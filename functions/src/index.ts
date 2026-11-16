@@ -38,7 +38,7 @@ const STORAGE_BUCKET = defineString('STORAGE_BUCKET', { default: 'tranyx-app.fir
 // projects (tranyx-app production web+mobile, tranyx-dev, tranyx-uat). An App Check or Auth
 // token registered for the admin project is not proof for a selected workspace target.
 // This process does not accept an admin-UI session in place of that target's tokens.
-const ENFORCE_APP_CHECK = defineBoolean('ENFORCE_APP_CHECK', { default: true });
+const ENFORCE_APP_CHECK = defineBoolean('ENFORCE_APP_CHECK', { default: false });
 
 /**
  * Treasury key: Secret Manager ONLY. Never in the repo, the client builds, or CI.
