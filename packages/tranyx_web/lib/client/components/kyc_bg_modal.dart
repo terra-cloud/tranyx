@@ -40,7 +40,11 @@ class _KycBgModalState extends State<KycBgModalComponent> {
 
       final file = files.first;
       final token = SessionStorage.idToken;
-      final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+      final url = await ImgBBService(
+        currentFirebaseConfig,
+        idToken: token,
+        onTokenRefresh: component.state.handleTokenRefresh,
+      ).uploadImageBytes(file.bytes, file.name);
 
       if (url != null) {
         setState(() {

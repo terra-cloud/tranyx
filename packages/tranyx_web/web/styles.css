@@ -562,7 +562,8 @@ html.dark .rw-wizard input:not([type=checkbox]):not([type=radio]):not([type=file
 html.dark .rw-badge { background: rgba(124,58,237,.2); color: #c4b5fd; }
 @media (max-width: 640px) {
   .rw-overlay { padding: 0 !important; align-items: flex-end !important; }
-  .rw-wizard { max-width: 100% !important; max-height: 94vh !important; border-radius: 20px 20px 0 !important; }
+  .rw-overlay .rw-wizard { max-width: 100% !important; max-height: 94vh !important; border-radius: 20px 20px 0 !important; }
+  .rw-wizard-page { max-height: none !important; border-radius: 20px !important; }
 }
 @media (prefers-reduced-motion: reduce) { .rw-overlay { animation: none !important; } }
 
@@ -576,7 +577,7 @@ html:not(.dark) .pf-pane input:not([type=checkbox]):not([type=radio]):not([type=
 
 /* W36 listing wizard page: single-column cards, section dividers */
 .rw-page { width: 100%; }
-.rw-wizard-page { overflow: visible; box-shadow: 0 4px 12px rgba(9,9,11,.04), 0 1px 2px rgba(9,9,11,.06) !important; }
+.rw-wizard-page { overflow: visible; box-shadow: 0 4px 12px rgba(9,9,11,.04), 0 1px 2px rgba(9,9,11,.06) !important; max-height: none !important; }
 .rw-sep { height: 1px; background: #e4e4e7; margin: 4px 0; }
 html.dark .rw-sep { background: #27272a; }
 

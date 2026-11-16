@@ -1025,28 +1025,28 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
                     span([Component.text(_error!)]),
                   ],
                 ),
-              div(classes: 'flex items-center justify-between w-full', [
+              div(classes: 'flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 w-full', [
                 if (_multiStep && _step > 1)
                   button(
                     classes:
-                        'px-6 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
+                        'w-full sm:w-auto px-6 py-3 sm:py-2.5 rounded-xl text-sm font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
                     events: {'click': (_) => setState(() => _step--)},
                     [Component.text('Back')],
                   )
                 else
-                  div([]),
+                  div(classes: 'hidden sm:block', []),
 
                 if (_multiStep && _step < 3)
                   button(
                     classes:
-                        'px-8 py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer shadow-lg shadow-purple-500/20',
+                        'w-full sm:w-auto px-8 py-3 sm:py-2.5 rounded-xl text-sm font-semibold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer shadow-lg shadow-purple-500/20',
                     events: {'click': (_) => _handleNext()},
                     [Component.text('Continue')],
                   )
                 else
                   button(
                     classes:
-                        'px-8 py-2.5 rounded-xl text-sm font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer flex items-center gap-2 shadow-lg shadow-green-500/20',
+                        'w-full sm:w-auto px-8 py-3.5 sm:py-2.5 rounded-xl text-base sm:text-sm font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors border-0 cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-green-500/20',
                     events: {'click': (_) => _publish()},
                     disabled: _isSubmitting,
                     [
@@ -1097,7 +1097,11 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
 
       final file = files.first;
       final token = SessionStorage.idToken;
-      final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+      final url = await ImgBBService(
+        currentFirebaseConfig,
+        idToken: token,
+        onTokenRefresh: component.appState.handleTokenRefresh,
+      ).uploadImageBytes(file.bytes, file.name);
 
       if (url != null) {
         setState(() {
@@ -1227,7 +1231,11 @@ class _EditPropertyModalState extends State<EditPropertyModalComponent> {
 
       final file = files.first;
       final token = SessionStorage.idToken;
-      final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+      final url = await ImgBBService(
+        currentFirebaseConfig,
+        idToken: token,
+        onTokenRefresh: component.appState.handleTokenRefresh,
+      ).uploadImageBytes(file.bytes, file.name);
 
       if (url != null) {
         setState(() {

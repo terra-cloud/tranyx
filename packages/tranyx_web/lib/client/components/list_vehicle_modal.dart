@@ -228,6 +228,11 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
       final user = component.appState.userProfile;
       if (user == null) throw Exception('User profile not loaded.');
 
+      final currentToken = SessionStorage.idToken;
+      if (currentToken == null || currentToken.isEmpty) {
+        await component.appState.handleTokenRefresh();
+      }
+
       final rental = VehicleRental(
         id: '',
         hostId: hostId,
@@ -287,7 +292,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
     } catch (e) {
       setState(() {
         _isSubmitting = false;
-        _error = e.toString();
+        _error = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
       });
     }
   }
@@ -1292,47 +1297,56 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
           ]),
 
           // Footer
-          div(classes: 'p-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4', [
-            if (_error != null)
-              div(classes: 'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-semibold flex items-center gap-2 animate-fade-in', [
-                lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0 text-red-500'),
-                span([Component.text(_error!)]),
-              ]),
-            div(classes: 'flex items-center justify-between', [
-              if (_multiStep && _step > 1)
-                button(
+          div(
+            classes:
+                'p-4 sm:p-6 pb-8 sm:pb-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4',
+            [
+              if (_error != null)
+                div(
                   classes:
-                      'px-6 py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors',
-                  events: {
-                    'click': (e) {
-                      final prevStep = _step - 1;
-                      setState(() => _step = prevStep);
-                      _onEnterStep(prevStep);
-                    },
-                  },
-                  [Component.text('Back')],
-                )
-              else
-                div([]),
-
-              if (_multiStep && _step < 3)
-                button(
-                  classes: 'px-8 py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
-                  events: {'click': (e) => _handleNext()},
-                  [Component.text('Next')],
-                )
-              else
-                button(
-                  classes:
-                      'px-8 py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center gap-2 border-0 cursor-pointer',
-                  events: {'click': (e) => _publish()},
+                      'p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm font-semibold flex items-center gap-2 animate-fade-in',
                   [
-                    if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
-                    Component.text(_isSubmitting ? 'Publishing...' : 'Publish vehicle'),
+                    lIcon('alert-circle', cls: 'w-5 h-5 flex-shrink-0 text-red-500'),
+                    span([Component.text(_error!)]),
                   ],
                 ),
-            ]),
-          ]),
+              div(classes: 'flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3', [
+                if (_multiStep && _step > 1)
+                  button(
+                    classes:
+                        'w-full sm:w-auto px-6 py-3 sm:py-2 rounded-xl font-semibold border ${isDark ? "border-zinc-700 hover:bg-zinc-800" : "border-zinc-300 hover:bg-zinc-50"} transition-colors cursor-pointer',
+                    events: {
+                      'click': (e) {
+                        final prevStep = _step - 1;
+                        setState(() => _step = prevStep);
+                        _onEnterStep(prevStep);
+                      },
+                    },
+                    [Component.text('Back')],
+                  )
+                else
+                  div(classes: 'hidden sm:block', []),
+
+                if (_multiStep && _step < 3)
+                  button(
+                    classes:
+                        'w-full sm:w-auto px-8 py-3 sm:py-2 rounded-xl font-bold text-white logo-gradient hover:opacity-90 transition-opacity border-0 cursor-pointer',
+                    events: {'click': (e) => _handleNext()},
+                    [Component.text('Next')],
+                  )
+                else
+                  button(
+                    classes:
+                        'w-full sm:w-auto px-8 py-3.5 sm:py-2 rounded-xl font-bold text-white bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center gap-2 border-0 cursor-pointer shadow-md text-base sm:text-sm',
+                    events: {'click': (e) => _publish()},
+                    [
+                      if (_isSubmitting) lIcon('loader', cls: 'w-4 h-4 animate-spin'),
+                      Component.text(_isSubmitting ? 'Publishing...' : 'Publish vehicle'),
+                    ],
+                  ),
+              ]),
+            ],
+          ),
         ],
       ),
     ]);
@@ -1454,7 +1468,11 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
 
       final file = files.first;
       final token = SessionStorage.idToken;
-      final url = await ImgBBService(currentFirebaseConfig, idToken: token).uploadImageBytes(file.bytes, file.name);
+      final url = await ImgBBService(
+        currentFirebaseConfig,
+        idToken: token,
+        onTokenRefresh: component.appState.handleTokenRefresh,
+      ).uploadImageBytes(file.bytes, file.name);
 
       if (url != null) {
         setState(() {
