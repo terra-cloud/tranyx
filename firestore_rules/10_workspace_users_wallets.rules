@@ -36,6 +36,26 @@
         (txId.matches('^p2p_with_.+') && exists(wrPath) && get(wrPath).data.get('uid', '') == uid);
     }
 
+    // Owner display update on the P2P top-up ledger row (transactions/p2p_dep_<depositId>).
+    // submitDepositProof and cancelDepositRequest write status, receipt, and reference after the
+    // deposit_requests doc. Amount, owner, type, and a settled row stay immutable. p2p_with_ stays
+    // create-only: cashout status is updateP2pWithdrawal / staffOps.
+    function p2pDepositOwnerPatch(txId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let prev = resource.data.get('status', '');
+      let next = request.resource.data.get('status', '');
+      return txId.matches('^p2p_dep_.+')
+        && isActiveUser()
+        && resource.data.get('uid', '') == request.auth.uid
+        && request.resource.data.get('uid', '') == resource.data.get('uid', '')
+        && request.resource.data.get('amount', 0) == resource.data.get('amount', 0)
+        && request.resource.data.get('type', '') == resource.data.get('type', '')
+        && request.resource.data.get('depositRequestId', '') == resource.data.get('depositRequestId', '')
+        && !(prev in ['APPROVED', 'COMPLETED', 'Completed', 'REJECTED'])
+        && next in ['WAITING_FOR_AGENT', 'AWAITING_PAYMENT', 'PENDING_VERIFICATION', 'CANCELLED']
+        && !changed.hasAny(['amount', 'uid', 'userId', 'type', 'id', 'depositRequestId']);
+    }
+
     // pending_onchain_<uid>_<signature>: the bookkeeping record of an in-flight on-chain payment. The
     // uid in the id must be the caller's, so nobody can squat another account's pending record.
     function isOwnPendingOnchainId(txId, uid) {
@@ -342,13 +362,14 @@
             (!txId.matches('^(fees_emp|refund_job|refund_stale_job|refund_prop|p2p)_.*') || isTxIdParty(txId, request.auth.uid)) &&
             (!txId.matches('^pending_onchain_.*') || isOwnPendingOnchainId(txId, request.auth.uid)))
         );
-      // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay).
+      // KAN-136-05: structured job/property/p2p tx ids are create-only for clients (no owner rewrite/replay),
+      // except p2p_dep_ display patches (proof + cancel). See p2pDepositOwnerPatch.
       // On-chain credit records (deposit_<sig> / sub_sol_<sig>) and the shared one-per-signature marker
       // (onchain_<sig>) are Admin SDK / staff only (create and update): the credit happens in the function.
       // Staff clients cannot rewrite payout rows or on-chain credit markers. Other staff updates stay.
       allow update: if !clientLedgerTypeIntroduced() &&
         !txId.matches('^(payout_nyx|fees_emp|deposit_sol|deposit_usdt|sub_sol|onchain)_.*') &&
-        (isAdminOrStaff() || (isActiveUser() && resource.data.uid == request.auth.uid &&
+        (isAdminOrStaff() || p2pDepositOwnerPatch(txId) || (isActiveUser() && resource.data.uid == request.auth.uid &&
         !txId.matches('^(refund_job|refund_stale_job|refund_prop|p2p|deposit)_.*') &&
         (!txId.matches('^pending_onchain_.*') ||
           (isOwnPendingOnchainId(txId, request.auth.uid) && request.resource.data.uid == resource.data.uid))));
