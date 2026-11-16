@@ -61,8 +61,43 @@
     }
 
     // Custom-claim staff/agent/admin. A users doc or an active p2p_agents doc is not this.
+    // role=partner is not staff and is not in isAdminTokenOrEmail.
     function isClaimStaff() {
       return isAdminTokenOrEmail();
+    }
+
+    // City partner (TRAD-15). The claim is role=partner plus partnerId. It does not grant staff or admin.
+    function isPartnerToken() {
+      return isAuthenticated() && request.auth.token != null &&
+        'role' in request.auth.token && request.auth.token.role == 'partner' &&
+        'partnerId' in request.auth.token && request.auth.token.partnerId is string &&
+        request.auth.token.partnerId.size() > 0;
+    }
+
+    // Identity Platform MFA puts the second factor on the token. A partner without it matches nothing.
+    function partnerMfaOk() {
+      return request.auth.token.keys().hasAny(['firebase']) &&
+        request.auth.token.firebase.keys().hasAny(['sign_in_second_factor']) &&
+        (request.auth.token.firebase.sign_in_second_factor == 'totp' ||
+          request.auth.token.firebase.sign_in_second_factor == 'phone');
+    }
+
+    function partnerRecord() {
+      return get(/databases/$(database)/documents/partners/$(request.auth.token.partnerId)).data;
+    }
+
+    function isActivePartner() {
+      return isPartnerToken() && partnerMfaOk() &&
+        exists(/databases/$(database)/documents/partners/$(request.auth.token.partnerId)) &&
+        partnerRecord().get('status', '') == 'active' &&
+        partnerRecord().get('uid', '') == request.auth.uid &&
+        partnerRecord().get('renewalDate', 0) > request.time.toMillis();
+    }
+
+    // areaKey is the city or municipality slug. Listing and job location wins; user city is only a fallback in the revenue job.
+    function partnerCoversArea(areaKey) {
+      return isActivePartner() && areaKey is string && areaKey.size() > 0 &&
+        areaKey in partnerRecord().get('areaKeys', []);
     }
 
     // Booking request party. renterId is the escrow alias of renteeId; uid/userId are older request shapes.

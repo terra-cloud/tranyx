@@ -139,7 +139,7 @@
 
     // Support Tickets Collections (Cross-platform compatibility)
     match /supportTickets/{ticketId} {
-      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff() || partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isValidTicketCreate() || isAdminOrStaff();
       allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
@@ -150,7 +150,7 @@
     }
 
     match /support_tickets/{ticketId} {
-      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource.data.get('uid', '') == request.auth.uid || isAdminOrStaff() || partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if isValidTicketCreate() || isAdminOrStaff();
       allow update, delete: if isAdminOrStaff();
       match /responses/{responseId} {
@@ -163,7 +163,7 @@
     // KAN-143: clients only create "flagged_for_ban" tickets about themselves (web index.html, mobile chat
     // views); the owner reads their own, staff do everything else.
     match /tickets/{ticketId} {
-      allow read: if isAuthenticated() && (resource.data.get('userId', '') == request.auth.uid || isAdminOrStaff());
+      allow read: if isAuthenticated() && (resource.data.get('userId', '') == request.auth.uid || isAdminOrStaff() || partnerCoversArea(resource.data.get('areaKey', '')));
       allow create: if (isActiveUser() &&
         request.resource.data.keys().hasOnly([
           'id', 'subject', 'title', 'userId', 'userName', 'chatId', 'reason', 'lastOffendingMessage',

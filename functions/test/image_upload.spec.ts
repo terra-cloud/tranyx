@@ -1,34 +1,76 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { HOURLY_UPLOADS, MAX_IMAGE_BYTES, parseUploadInput, sniffImage, uploadImage, type FetchLike, type UploadDeps } from '../src/image_upload';
-
-process.env.FIRESTORE_EMULATOR_HOST ??= '127.0.0.1:8189';
-initializeApp({ projectId: 'demo-tranyx' });
-const db = getFirestore();
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Firestore } from 'firebase-admin/firestore';
+import {
+  HOURLY_UPLOADS,
+  MAX_IMAGE_BYTES,
+  parseUploadInput,
+  sniffImage,
+  uploadImage,
+  type StorageBucketLike,
+  type StorageFileLike,
+  type UploadDeps,
+} from '../src/image_upload';
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 1)]);
 const png64 = PNG.toString('base64');
 const err = async (p: Promise<unknown>) => p.then(() => null, (e) => e as { code: string; message: string });
 
-let calls: { url: string; body: string }[] = [];
-let reply: { ok: boolean; status: number; body: string } | 'throw' = { ok: true, status: 200, body: JSON.stringify({ data: { url: 'https://i.ibb.co/abc/pic.png' } }) };
-const fetchFn: FetchLike = async (url, init) => {
-  calls.push({ url, body: init.body });
-  if (reply === 'throw') throw new Error('socket hang up https://api.imgbb.com/1/upload?key=SECRET');
-  return { ok: reply.ok, status: reply.status, text: async () => (reply as any).body };
-};
-let clock = Date.UTC(2026, 9, 31, 4, 0, 0);
-const deps = (apiKey = 'k-test'): UploadDeps => ({ db, fetchFn, apiKey, now: () => clock });
+let savedFiles: { path: string; bytes: Buffer; options?: any }[] = [];
+let saveShouldThrow = false;
 
-async function clearAll() {
-  await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/emulator/v1/projects/demo-tranyx/databases/(default)/documents`, { method: 'DELETE' });
+const mockBucket: StorageBucketLike = {
+  name: 'tranyx-app.firebasestorage.app',
+  file(path: string): StorageFileLike {
+    return {
+      save: async (bytes: Buffer, options?: any) => {
+        if (saveShouldThrow) throw new Error('Google Cloud Storage connection refused');
+        savedFiles.push({ path, bytes, options });
+      },
+    };
+  },
+};
+
+let store = new Map<string, any>();
+function createMockDb(): Firestore {
+  return {
+    doc(path: string) {
+      return { path };
+    },
+    runTransaction: async (fn: any) => {
+      const transaction = {
+        get: async (ref: any) => ({
+          exists: store.has(ref.path),
+          get: (f: string) => store.get(ref.path)?.[f],
+        }),
+        set: (ref: any, data: any) => {
+          const prev = store.get(ref.path) || {};
+          const next = { ...prev, ...data };
+          if (data.count && typeof data.count === 'object') {
+            next.count = (prev.count || 0) + 1;
+          }
+          store.set(ref.path, next);
+        },
+      };
+      return await fn(transaction);
+    },
+  } as unknown as Firestore;
 }
-beforeAll(clearAll);
-beforeEach(async () => {
-  await clearAll();
-  calls = [];
-  reply = { ok: true, status: 200, body: JSON.stringify({ data: { url: 'https://i.ibb.co/abc/pic.png' } }) };
+
+let clock = Date.UTC(2026, 9, 31, 4, 0, 0);
+let db = createMockDb();
+const deps = (): UploadDeps => ({
+  db,
+  bucket: mockBucket,
+  now: () => clock,
+  randomId: () => 'fixed-token-uuid-123',
+});
+
+beforeEach(() => {
+  store.clear();
+  savedFiles = [];
+  saveShouldThrow = false;
+  clock = Date.UTC(2026, 9, 31, 4, 0, 0);
+  db = createMockDb();
 });
 
 describe('input checks', () => {
@@ -40,6 +82,7 @@ describe('input checks', () => {
     expect(sniffImage(Buffer.from('<svg onload=alert(1)>'))).toBeNull();
     expect(sniffImage(Buffer.from('%PDF-1.7'))).toBeNull();
   });
+
   it('parses data URLs, strips the extension from the name, rejects junk and oversize', () => {
     expect(parseUploadInput({ imageBase64: `data:image/png;base64,${png64}`, name: 'my photo (1).PNG' }).name).toBe('my_photo_1_');
     expect(() => parseUploadInput({})).toThrow();
@@ -50,37 +93,34 @@ describe('input checks', () => {
   });
 });
 
-describe('uploadImage', () => {
-  it('needs a signed-in user and a configured key', async () => {
+describe('uploadImage to Firebase Storage', () => {
+  it('needs a signed-in user', async () => {
     expect((await err(uploadImage(deps(), undefined, { imageBase64: png64 })))?.code).toBe('unauthenticated');
-    expect((await err(uploadImage(deps(''), 'u1', { imageBase64: png64 })))?.code).toBe('failed-precondition');
-    expect(calls).toHaveLength(0);
+    expect(savedFiles).toHaveLength(0);
   });
-  it('posts a simple form to imgbb and returns only the URL', async () => {
-    const r = await uploadImage(deps(), 'u1', { imageBase64: png64, name: 'pic.png' });
-    expect(r).toEqual({ url: 'https://i.ibb.co/abc/pic.png' });
-    expect(calls[0].url).toBe('https://api.imgbb.com/1/upload');
-    expect(new URLSearchParams(calls[0].body).get('image')).toBe(png64);
-    expect(new URLSearchParams(calls[0].body).get('key')).toBe('k-test');
+
+  it('saves file to Firebase Storage bucket and returns public download URL with token', async () => {
+    const res = await uploadImage(deps(), 'user123', { imageBase64: png64, name: 'receipt.png' });
+    expect(savedFiles).toHaveLength(1);
+    expect(savedFiles[0].path).toMatch(/^uploads\/user123\/receipt_[a-f0-9]+\.png$/);
+    expect(savedFiles[0].options?.metadata?.contentType).toBe('image/png');
+    expect(savedFiles[0].options?.metadata?.metadata?.firebaseStorageDownloadTokens).toBe('fixed-token-uuid-123');
+
+    expect(res.url).toContain('https://firebasestorage.googleapis.com/v0/b/tranyx-app.firebasestorage.app/o/uploads%2Fuser123%2Freceipt_');
+    expect(res.url).toContain('?alt=media&token=fixed-token-uuid-123');
   });
-  it('maps host failures to fixed messages and never leaks the key or the host body', async () => {
-    reply = { ok: false, status: 400, body: '{"error":{"message":"Invalid API v1 key. key=k-test"}}' };
-    const e1 = await err(uploadImage(deps(), 'u1', { imageBase64: png64 }));
-    expect(e1?.code).toBe('failed-precondition');
-    expect(JSON.stringify(e1)).not.toContain('k-test');
-    reply = { ok: false, status: 429, body: '' };
-    expect((await err(uploadImage(deps(), 'u1', { imageBase64: png64 })))?.code).toBe('resource-exhausted');
-    reply = { ok: false, status: 504, body: '<html>Gateway Time-out</html>' };
-    expect((await err(uploadImage(deps(), 'u1', { imageBase64: png64 })))?.code).toBe('unavailable');
-    reply = 'throw';
-    const e2 = await err(uploadImage(deps(), 'u1', { imageBase64: png64 }));
-    expect(e2?.code).toBe('unavailable');
-    expect(JSON.stringify(e2)).not.toContain('SECRET');
-    reply = { ok: true, status: 200, body: '{"data":{"url":"http://insecure/x.png"}}' };
-    expect((await err(uploadImage(deps(), 'u1', { imageBase64: png64 })))?.code).toBe('unavailable');
+
+  it('handles storage errors gracefully', async () => {
+    saveShouldThrow = true;
+    const e = await err(uploadImage(deps(), 'user123', { imageBase64: png64 }));
+    expect(e?.code).toBe('unavailable');
+    expect(e?.message).toContain('Firebase Storage is unavailable');
   });
+
   it('caps uploads per user per hour and resets the next hour', async () => {
-    for (let i = 0; i < HOURLY_UPLOADS; i++) await uploadImage(deps(), 'u1', { imageBase64: png64 });
+    for (let i = 0; i < HOURLY_UPLOADS; i++) {
+      await uploadImage(deps(), 'u1', { imageBase64: png64 });
+    }
     expect((await err(uploadImage(deps(), 'u1', { imageBase64: png64 })))?.code).toBe('resource-exhausted');
     await uploadImage(deps(), 'u2', { imageBase64: png64 }); // other users unaffected
     clock += 3_600_000;

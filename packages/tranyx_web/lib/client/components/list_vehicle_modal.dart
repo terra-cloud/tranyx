@@ -1462,7 +1462,7 @@ class _ListVehicleModalState extends State<ListVehicleModalComponent> {
         });
       } else {
         setState(() {
-          _error = 'Failed to upload image to ImgBB. Please try again.';
+          _error = 'Failed to upload image. Please try again.';
         });
       }
     } catch (e) {

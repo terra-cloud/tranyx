@@ -1498,7 +1498,7 @@ class _ProfileMainState extends State<_ProfileMain> {
                           return;
                         }
 
-                        // Upload proof receipt via ImgBBService
+                        // Upload proof receipt via FirebaseStorageService
                         final imgService = ImgBBService(currentFirebaseConfig, idToken: s.idToken);
                         final uploadedUrl = await imgService.uploadImageBytes(
                           p2pSubscriptionProofBytes!,

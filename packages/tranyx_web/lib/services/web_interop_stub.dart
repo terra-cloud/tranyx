@@ -79,10 +79,16 @@ Future<double?> getSuiBalance(String address) async => null;
 
 Future<String?> sendSolanaPayment(String fromAddress, String toAddress, double amountInSol) async => null;
 
-Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async => null;
+Future<String?> sendUsdtPayment(String fromAddress, String toAddress, double amountInUsdt, {String? usdtMint}) async =>
+    null;
 Future<String?> signSolanaMessage(String fromAddress, String message) async => null;
+
 /// App Check token for callable requests (null when no site key is configured).
 Future<String?> getAppCheckTokenJs(Map<String, String> config, String siteKey) async => null;
+
+String? readNyxHits(String userKey) => null;
+
+void writeNyxHits(String userKey, String json) {}
 
 Future<String?> signInWithGoogleJs(Map<String, String> config) async => null;
 Future<String?> linkGoogleAccountJs(Map<String, String> config) async => null;
@@ -95,7 +101,6 @@ Future<void> signOutJs() async {}
 
 Future<String?> sendPhoneVerificationSmsJs(Map<String, String> config, String phoneNumber) async => null;
 Future<bool> verifyPhoneSmsCodeJs(String verificationId, String code) async => false;
-
 
 void initFirebaseJs(Map<String, dynamic> config) {}
 
@@ -123,7 +128,13 @@ String sendChatMessageJs(
   int? slaMinutes,
   String? category,
 }) => 'ok';
-void createAdminBanTicketJs(String userId, String userName, String chatId, String offendingText, String violationType) {}
+void createAdminBanTicketJs(
+  String userId,
+  String userName,
+  String chatId,
+  String offendingText,
+  String violationType,
+) {}
 
 // Job Details stubs
 void listenToJobDetailsJs(String jobId, void Function(String) callback) {}
