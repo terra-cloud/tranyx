@@ -29,6 +29,7 @@ export 'src/job_counter_offer_validator.dart';
 export 'src/job_sla_helper.dart';
 export 'src/vehicle_pricing_validator.dart';
 export 'src/property_pricing_validator.dart';
+export 'src/listing_description.dart';
 export 'src/onchain_credit.dart';
 export 'src/cloud_function_exception.dart';
 export 'src/onchain_credit_callable.dart';
