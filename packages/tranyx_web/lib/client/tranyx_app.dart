@@ -8,6 +8,7 @@ import 'dart:js_interop_unsafe';
 import 'package:web/web.dart' as web;
 import 'package:tranyx_web/components/store_url_guard.dart';
 import 'package:tranyx_web/components/job_selection_guards.dart';
+import 'package:tranyx_web/client/publish_chrome.dart';
 import 'package:tranyx_web/services/web_interop.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
@@ -8699,7 +8700,7 @@ class TranyxAppState extends State<TranyxApp> {
           )
         else
           // Scrollable content
-          div(classes: 'flex-1 overflow-y-auto no-scrollbar pb-24 md:pb-8', [
+          div(classes: 'app-scroll flex-1 overflow-y-auto no-scrollbar md:pb-8', [
             div(classes: 'mx-auto w-full max-w-6xl p-6 md:p-10 ${isGuestBrowse ? "font-dm-sans" : ""}', [
               // W36 listing wizard: list/edit vehicle + property render as a page in the shell
               if (showDepositModal)
@@ -8782,15 +8783,18 @@ class TranyxAppState extends State<TranyxApp> {
             ]),
           ]),
 
-        // Mobile bottom nav (hidden in listing/editing wizards to prevent covering submit actions)
-        if (!isCurrentJobTrackingActive &&
-            !showListVehicleModal &&
-            !showListPropertyModal &&
-            !showEditVehicleModal &&
-            !showEditPropertyModal)
+        // Mobile bottom nav and Nyx sit on top of a full-width Publish control.
+        if (!hideMobileChromeForPublish(
+          jobTracking: isCurrentJobTrackingActive,
+          creatingJob: activeTab == AppTab.jobs && jobsView == JobsView.create,
+          listingVehicle: showListVehicleModal,
+          listingProperty: showListPropertyModal,
+          editingVehicle: showEditVehicleModal,
+          editingProperty: showEditPropertyModal,
+        )) ...[
           BottomNavComponent(state: this),
-
-        if (!isCurrentJobTrackingActive) const NyxHelpPanel(),
+          const NyxHelpPanel(),
+        ],
 
         // Powered by Terra logo badge in bottom right corner
         if (!isCurrentJobTrackingActive)

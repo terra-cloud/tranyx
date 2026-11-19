@@ -1015,7 +1015,7 @@ class _ListPropertyModalState extends State<ListPropertyModalComponent> {
           // Footer
           div(
             classes:
-                'p-4 sm:p-6 pb-8 sm:pb-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4',
+                'publish-dock p-4 sm:p-6 pb-8 sm:pb-6 border-t ${isDark ? "border-zinc-800" : "border-zinc-100"} flex flex-col gap-4 ${isDark ? "bg-zinc-900" : "bg-white"}',
             [
               if (_error != null)
                 div(

@@ -3355,7 +3355,7 @@ class _CreateJob extends StatelessComponent {
 
       button(
         classes:
-            'w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex justify-center items-center',
+            'publish-dock w-full py-4 rounded-2xl font-semibold text-white logo-gradient hover:opacity-90 transition-opacity flex justify-center items-center',
         events: {
           'click': (_) async {
             s.setState(() => s.postJobError = null); // Reset error on click
