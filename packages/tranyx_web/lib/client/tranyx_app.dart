@@ -1972,7 +1972,21 @@ class TranyxAppState extends State<TranyxApp> {
     });
   }
 
+  void _ensureClientFirebase() {
+    initFirebaseJs({
+      'apiKey': currentFirebaseConfig.apiKey,
+      'authDomain': currentFirebaseConfig.authDomain,
+      'projectId': currentFirebaseConfig.projectId,
+      'storageBucket': currentFirebaseConfig.storageBucket,
+      'messagingSenderId': currentFirebaseConfig.messagingSenderId,
+      'appId': currentFirebaseConfig.appId,
+    });
+  }
+
   void _startListeningRentals() {
+    // Guests never reach the signed-in listener restart. The JS listener is a
+    // no-op until Firebase is initialized, so do that here.
+    _ensureClientFirebase();
     listenToRentalsJs((String jsonString) {
       try {
         final List<dynamic> raw = jsonDecode(jsonString);
@@ -2123,6 +2137,7 @@ class TranyxAppState extends State<TranyxApp> {
   }
 
   void _startListeningProperties() {
+    _ensureClientFirebase();
     listenToPropertiesJs((String jsonString) {
       try {
         final List<dynamic> raw = jsonDecode(jsonString);
@@ -2910,6 +2925,9 @@ class TranyxAppState extends State<TranyxApp> {
     });
     // Public Firestore reads — no auth token required (jobs/rentals/properties allow read: true).
     unawaited(loadGuestPublicListings());
+    // initState may have subscribed before Firebase existed. Re-attach now.
+    _startListeningRentals();
+    _startListeningProperties();
   }
 
   /// Fetch publicly readable open gigs for guest browse / Jobs tab.
