@@ -6,6 +6,7 @@ import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/features/auth/providers/auth_provider.dart';
 import 'package:tranyx_mobile/core/utils/geo_helper.dart';
+import 'package:tranyx_mobile/core/widgets/listing_description_text.dart';
 import 'package:tranyx_mobile/core/widgets/user_avatar.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/listing_wizard_sheet.dart';
 import 'package:tranyx_mobile/features/transit/presentation/widgets/manage_listing_sheet.dart';
@@ -464,8 +465,8 @@ class _ListingDetailDialogState extends ConsumerState<ListingDetailDialog> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      desc.isEmpty ? 'No description provided.' : desc,
+                    ListingDescriptionText(
+                      text: desc,
                       style: TextStyle(
                         fontSize: 14,
                         height: 1.5,

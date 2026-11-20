@@ -23,7 +23,8 @@
           'nyxianRated', 'promoCode', 'discountAmount', 'creatorPhotoUrl',
           'creatorName', 'creatorType', 'createdAt', 'updatedAt',
           'acknowledgmentDeadline', 'acknowledgmentSlaMinutes', 'acknowledgmentCategory',
-          'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent'
+          'acknowledgmentStatus', 'acknowledgedAt', 'hiredAt', 'acknowledgmentReminderSent',
+          'areaKey', 'listingFeePaid'
         ])) ||
         // 1b. Creator (Employer): Resetting, re-opening or cancelling an unacknowledged or expired job
         (isCreator &&
@@ -95,7 +96,7 @@
           get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid ||
           get(/databases/$(database)/documents/jobs/$(jobId)).data.acceptedApplicantId == request.auth.uid
         );
-        allow delete: if false;
+        allow delete: if (isActiveUser() && get(/databases/$(database)/documents/jobs/$(jobId)).data.creatorId == request.auth.uid) || isAdminOrStaff();
       }
 
       // A creator can't delete a job that already has payout/fee records: the tx docs would outlive

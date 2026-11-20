@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:tranyx_mobile/core/theme/app_colors.dart';
+import 'package:tranyx_mobile/core/widgets/listing_description_text.dart';
 import 'package:tranyx_mobile/core/theme/ui_helpers.dart';
 import 'package:tranyx_mobile/core/providers/theme_provider.dart';
 import 'package:tranyx_mobile/core/utils/num_extension.dart';
@@ -1159,10 +1160,8 @@ class _JobDetailsViewState extends ConsumerState<JobDetailsView> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      activeJob.description.isNotEmpty
-                          ? activeJob.description
-                          : "No description provided.",
+                    ListingDescriptionText(
+                      text: activeJob.description,
                       style: TextStyle(
                         fontSize: 14,
                         height: 1.6,

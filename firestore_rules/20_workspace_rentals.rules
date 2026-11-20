@@ -33,14 +33,14 @@
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
           !(resource.data.status in ['Booked', 'Rented', 'On the way to Rentee', 'Returning', 'Active']) &&
-          (request.resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Awaiting Signature', 'awaiting signature'] ||
+          (request.resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Awaiting Signature', 'awaiting signature', 'Archived', 'archived'] ||
            request.resource.data.status == resource.data.status) &&
           (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['priceDaily', 'price12h', 'priceWeekly', 'priceMonthly']) ||
            isValidVehiclePricing(request.resource.data)) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             // Identity & metadata
             'id', 'hostName', 'hostPhotoUrl', 'acceptingBookings', 'status',
-            'isListingFeeWaived', 'createdAt', 'updatedAt',
+            'isListingFeeWaived', 'listingFeePaid', 'areaKey', 'createdAt', 'updatedAt',
             // Vehicle specs
             'brand', 'model', 'vehicleModel', 'year', 'type', 'vehicleType',
             'plateNumber', 'transmission', 'fuelType', 'seatingCapacity',
@@ -128,10 +128,10 @@
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid ||
           get(/databases/$(database)/documents/rentals/$(rentalId)).data.renteeId == request.auth.uid
         );
-        allow delete: if false;
+        allow delete: if (isActiveUser() && get(/databases/$(database)/documents/rentals/$(rentalId)).data.hostId == request.auth.uid) || isAdminOrStaff();
       }
 
-      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Archived', 'archived'])) || isAdminOrStaff();
 
       match /questions/{questionId} {
         allow read: if !isPartnerToken();
