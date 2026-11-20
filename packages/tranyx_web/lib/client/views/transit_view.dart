@@ -7,6 +7,7 @@ import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../../services/web_interop.dart';
 import '../utils/geo_helper.dart';
+import '../utils/guest_rental_browse.dart';
 import '../utils/listing_privacy.dart';
 import '../../components/map_container.dart';
 import '../../services/map_interop.dart';
@@ -49,6 +50,30 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
   void dispose() {
     _tickTimer?.cancel();
     super.dispose();
+  }
+
+  void _openVehicleBooking(Map<String, dynamic> rental) {
+    final s = component.state;
+    if (s.isGuestBrowse) {
+      s.openGuestGate();
+      return;
+    }
+    s.setState(() {
+      s.selectedRentalData = rental;
+      s.showBookVehicleModal = true;
+    });
+  }
+
+  void _openPropertyBooking(Map<String, dynamic> property) {
+    final s = component.state;
+    if (s.isGuestBrowse) {
+      s.openGuestGate();
+      return;
+    }
+    s.setState(() {
+      s.selectedPropertyData = property;
+      s.showBookPropertyModal = true;
+    });
   }
 
   @override
@@ -233,22 +258,35 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       }).toList();
 
       final signedInBrowse = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
-      availableRentals.sort((rentalA, rentalB) {
-        if (!signedInBrowse) {
-          return (rentalA['brand'] ?? '').toString().compareTo((rentalB['brand'] ?? '').toString());
-        }
-        final aLat = (rentalA['pickupLat'] as num?)?.toDouble();
-        final aLng = (rentalA['pickupLng'] as num?)?.toDouble();
-        final bLat = (rentalB['pickupLat'] as num?)?.toDouble();
-        final bLng = (rentalB['pickupLng'] as num?)?.toDouble();
-        final aDist = (aLat != null && aLng != null)
-            ? calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng)
-            : double.infinity;
-        final bDist = (bLat != null && bLng != null)
-            ? calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng)
-            : double.infinity;
-        return aDist.compareTo(bDist);
-      });
+      if (!signedInBrowse) {
+        final ordered = orderGuestRentals(
+          listings: availableRentals,
+          createdAtMs: (rental) => listingCreatedAtMs(rental['createdAt']),
+          latitude: (rental) => (rental['pickupLat'] as num?)?.toDouble(),
+          longitude: (rental) => (rental['pickupLng'] as num?)?.toDouble(),
+          viewerLat: s.userLatitude,
+          viewerLng: s.userLongitude,
+          viewerLocationKnown: s.hasAcquiredGps,
+          distanceKm: calculateDistance,
+        );
+        availableRentals
+          ..clear()
+          ..addAll(ordered);
+      } else {
+        availableRentals.sort((rentalA, rentalB) {
+          final aLat = (rentalA['pickupLat'] as num?)?.toDouble();
+          final aLng = (rentalA['pickupLng'] as num?)?.toDouble();
+          final bLat = (rentalB['pickupLat'] as num?)?.toDouble();
+          final bLng = (rentalB['pickupLng'] as num?)?.toDouble();
+          final aDist = (aLat != null && aLng != null)
+              ? calculateDistance(s.userLatitude, s.userLongitude, aLat, aLng)
+              : double.infinity;
+          final bDist = (bLat != null && bLng != null)
+              ? calculateDistance(s.userLatitude, s.userLongitude, bLat, bLng)
+              : double.infinity;
+          return aDist.compareTo(bDist);
+        });
+      }
 
       // Partition activeRentals into Ongoing/Active vs Upcoming/Booked
       final ongoingRentals = activeRentals.where((r) {
@@ -422,12 +460,27 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
       }).toList();
 
       final signedInProperties = viewerIsSignedIn(s.userProfile?.uid ?? SessionStorage.uid);
-      availableProperties.sort((propA, propB) {
-        if (!signedInProperties) return propA.title.compareTo(propB.title);
-        final aDist = calculateDistance(s.userLatitude, s.userLongitude, propA.latitude, propA.longitude);
-        final bDist = calculateDistance(s.userLatitude, s.userLongitude, propB.latitude, propB.longitude);
-        return aDist.compareTo(bDist);
-      });
+      if (!signedInProperties) {
+        final ordered = orderGuestRentals(
+          listings: availableProperties,
+          createdAtMs: (prop) => prop.createdAt.millisecondsSinceEpoch,
+          latitude: (prop) => prop.latitude,
+          longitude: (prop) => prop.longitude,
+          viewerLat: s.userLatitude,
+          viewerLng: s.userLongitude,
+          viewerLocationKnown: s.hasAcquiredGps,
+          distanceKm: calculateDistance,
+        );
+        availableProperties
+          ..clear()
+          ..addAll(ordered);
+      } else {
+        availableProperties.sort((propA, propB) {
+          final aDist = calculateDistance(s.userLatitude, s.userLongitude, propA.latitude, propA.longitude);
+          final bDist = calculateDistance(s.userLatitude, s.userLongitude, propB.latitude, propB.longitude);
+          return aDist.compareTo(bDist);
+        });
+      }
 
       final ongoingLeases = activeLeases.where((dynamic lease) {
         final st = (lease is PropertyRental ? lease.status : (lease is Map ? lease['status']?.toString() : '') ?? '').toLowerCase();
@@ -1426,15 +1479,12 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
     final totalCost = req['totalCost'] ?? req['amount'] ?? 0;
 
     void openDetails() {
-      s.setState(() {
-        if (isProperty) {
-          s.selectedPropertyData = listingMap;
-          s.showBookPropertyModal = true;
-        } else {
-          s.selectedRentalData = listingMap;
-          s.showBookVehicleModal = true;
-        }
-      });
+      final listing = listingMap ?? <String, dynamic>{};
+      if (isProperty) {
+        _openPropertyBooking(listing);
+      } else {
+        _openVehicleBooking(listing);
+      }
     }
 
     return div(
@@ -1579,11 +1629,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           '${s.rentalsPanelMode && (s.showBookVehicleModal || s.showManageVehicleModal) && s.selectedRentalData?['id'] == r['id'] ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
       attributes: {if (s.rentalsPanelMode && (s.showBookVehicleModal || s.showManageVehicleModal) && s.selectedRentalData?['id'] == r['id']) 'aria-current': 'true'},
       events: {
-        if (!isHostView)
-          'click': (_) => s.setState(() {
-            s.selectedRentalData = r;
-            s.showBookVehicleModal = true;
-          })
+        if (!isHostView) 'click': (_) => _openVehicleBooking(r)
         else
           'click': (_) => s.openManageVehicle(r),
       },
@@ -1868,10 +1914,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                       s.openManageVehicle(r);
                       return;
                     }
-                    s.setState(() {
-                      s.selectedRentalData = r;
-                      s.showBookVehicleModal = true;
-                    });
+                    _openVehicleBooking(r);
                   },
                 },
                 [Component.text(isMyListing ? 'Manage' : 'Book Now')],
@@ -1907,11 +1950,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           '${s.rentalsPanelMode && (s.showBookPropertyModal || s.showManagePropertyModal) && s.selectedPropertyData?['id'] == prop.id ? (isDark ? "ring-2 ring-indigo-400" : "ring-2 ring-[#4f46e5]") : ""}',
       attributes: {if (s.rentalsPanelMode && (s.showBookPropertyModal || s.showManagePropertyModal) && s.selectedPropertyData?['id'] == prop.id) 'aria-current': 'true'},
       events: {
-        if (!isHostView)
-          'click': (_) => s.setState(() {
-            s.selectedPropertyData = prop.toMap();
-            s.showBookPropertyModal = true;
-          })
+        if (!isHostView) 'click': (_) => _openPropertyBooking(prop.toMap())
         else
           'click': (_) => s.openManageProperty(prop.toMap()),
       },
@@ -2092,10 +2131,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
                       s.openManageProperty(prop.toMap());
                       return;
                     }
-                    s.setState(() {
-                      s.selectedPropertyData = prop.toMap();
-                      s.showBookPropertyModal = true;
-                    });
+                    _openPropertyBooking(prop.toMap());
                   },
                 },
                 [Component.text(isMyProperty ? 'Manage' : 'Rent Now')],
