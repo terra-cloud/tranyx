@@ -2,6 +2,8 @@ import 'package:jaspr/dom.dart';
 import 'package:jaspr/jaspr.dart';
 import 'package:shared/shared.dart';
 import '../tranyx_app.dart';
+import '../utils/geo_helper.dart';
+import '../utils/guest_rental_browse.dart';
 import '../../components/ui_helpers.dart';
 import '../../state/app_state.dart';
 import '../utils/listing_privacy.dart';
@@ -118,28 +120,44 @@ class GuestBrowseViewComponent extends StatelessComponent {
     final gigPreview = openJobs.take(3).toList();
     final jobsLoading = s.isLoadingJobs && openJobs.isEmpty;
 
-    final availableVehicles = s.realtimeRentals.where((r) {
-      final status = (r['status'] ?? '').toString();
-      if (status != 'Available' && status.toLowerCase() != 'available') return false;
-      if (r['isDeleted'] == true) return false;
-      return true;
-    }).toList()
-      ..sort((vehA, vehB) => (vehA['brand'] ?? '').toString().compareTo((vehB['brand'] ?? '').toString()));
+    final availableVehicles = orderGuestRentals(
+      listings: s.realtimeRentals.where((r) {
+        final status = (r['status'] ?? '').toString();
+        if (status != 'Available' && status.toLowerCase() != 'available') return false;
+        if (r['isDeleted'] == true) return false;
+        return true;
+      }).toList(),
+      createdAtMs: (rental) => listingCreatedAtMs(rental['createdAt']),
+      latitude: (rental) => (rental['pickupLat'] as num?)?.toDouble(),
+      longitude: (rental) => (rental['pickupLng'] as num?)?.toDouble(),
+      viewerLat: s.userLatitude,
+      viewerLng: s.userLongitude,
+      viewerLocationKnown: s.hasAcquiredGps,
+      distanceKm: calculateDistance,
+    );
 
-    final availableProperties = s.realtimeProperties.where((prop) {
-      final status = prop.status;
-      if (status == 'Inactive' ||
-          status == 'Unpublished' ||
-          status == 'Archived' ||
-          status == 'Deleted' ||
-          status == 'Not Accepting Bookings') {
-        return false;
-      }
-      if (prop.isDeleted) return false;
-      if (status != 'Available' && status.toLowerCase() != 'available') return false;
-      return true;
-    }).toList()
-      ..sort((propA, propB) => propA.title.compareTo(propB.title));
+    final availableProperties = orderGuestRentals(
+      listings: s.realtimeProperties.where((prop) {
+        final status = prop.status;
+        if (status == 'Inactive' ||
+            status == 'Unpublished' ||
+            status == 'Archived' ||
+            status == 'Deleted' ||
+            status == 'Not Accepting Bookings') {
+          return false;
+        }
+        if (prop.isDeleted) return false;
+        if (status != 'Available' && status.toLowerCase() != 'available') return false;
+        return true;
+      }).toList(),
+      createdAtMs: (prop) => prop.createdAt.millisecondsSinceEpoch,
+      latitude: (prop) => prop.latitude,
+      longitude: (prop) => prop.longitude,
+      viewerLat: s.userLatitude,
+      viewerLng: s.userLongitude,
+      viewerLocationKnown: s.hasAcquiredGps,
+      distanceKm: calculateDistance,
+    );
 
     // Interleave vehicles + properties by distance for the nearby strip (max 3).
     final nearbyRentals = <({bool isProperty, dynamic item, double dist})>[];
