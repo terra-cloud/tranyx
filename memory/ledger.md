@@ -16,3 +16,4 @@
 | 2026-10-29 | W21 My Postings master-detail + applicants panel, W16 sidebar mode pill | COMMITTED | `c857be1` (W25 390 node 16:2115 not found in Figma file; full-screen review on mobile follows W21 390 note) |
 | 2026-10-29 | W58 Transaction History tabs/period/stat cards/CSV | COMMITTED | `796c791`; helpers + test in lib/client/ledger_summary.dart, test/ledger_summary_test.dart |
 | 2026-10-29 | W00 splash | COMMITTED | `e8f1dd4` index.html + Dart splash share .w00-splash |
+| 2026-11-20 | Web guest vehicle/property rentals | COMMITTED | Public listeners start before Firebase init and never restart for guests. Init Firebase in the rental listeners and keep listings that have no public coordinates. Rules unchanged. |
