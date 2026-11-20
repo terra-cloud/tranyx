@@ -9,6 +9,7 @@ import '../../components/ui_helpers.dart';
 import '../../services/web_interop.dart';
 import '../../services/firebase_service.dart';
 import 'contract_viewer.dart';
+import '../listing_description_view.dart';
 
 class BookPropertyModalComponent extends StatefulComponent {
   final TranyxAppState appState;
@@ -720,9 +721,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                 // Specifications details
                 div([
                   h3(classes: 'text-lg font-bold mb-2', [Component.text('About this Space')]),
-                  p(classes: 'text-sm ${isDark ? "text-zinc-300" : "text-zinc-600"} leading-relaxed', [
-                    Component.text(desc),
-                  ]),
+                  ...listingDescriptionView((desc ?? '').toString(), isDark: isDark, empty: ''),
                 ]),
 
                 if (amenities.isNotEmpty)

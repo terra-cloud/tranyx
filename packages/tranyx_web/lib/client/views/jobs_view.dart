@@ -12,6 +12,7 @@ import '../../state/app_state.dart';
 import '../utils/geo_helper.dart';
 import '../utils/listing_privacy.dart';
 import 'package:shared/shared.dart';
+import '../listing_description_view.dart';
 
 class JobsViewComponent extends StatelessComponent {
   final TranyxAppState state;
@@ -1833,11 +1834,11 @@ class _JobDetails extends StatelessComponent {
       // Description
       div(classes: 'p-5 rounded-2xl border $cardCls', [
         p(classes: 'font-semibold mb-2', [Component.text('Job Description')]),
-        p(classes: 'text-sm leading-relaxed ${isDark ? "text-zinc-400" : "text-zinc-600"}', [
-          Component.text(
-            s.selectedJobData?['description'] as String? ?? 'No description provided.',
-          ),
-        ]),
+        ...listingDescriptionView(
+          s.selectedJobData?['description'] as String? ?? '',
+          isDark: isDark,
+          proseClass: 'text-sm leading-relaxed break-words max-w-full ${isDark ? "text-zinc-400" : "text-zinc-600"}',
+        ),
         if ((s.selectedJobData?['address'] as String?)?.isNotEmpty == true ||
             (s.selectedJobData?['addressPublic'] as String?)?.isNotEmpty == true ||
             (s.selectedJobData?['pickupAddress'] as String?)?.isNotEmpty == true) ...[

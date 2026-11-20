@@ -12,12 +12,14 @@
         // 1. Host (Property Owner): Can update property details & accept bookings when not actively rented
         (isActiveUser() && resource.data.hostId == request.auth.uid && 
           request.resource.data.hostId == resource.data.hostId &&
-          (resource.data.status == 'Available' || resource.data.status == 'available' || resource.data.status == 'Not Accepting Bookings') &&
+          (resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Archived', 'archived']) &&
+          (request.resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Awaiting Signature', 'awaiting signature', 'Archived', 'archived'] ||
+           request.resource.data.status == resource.data.status) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             // Identity & metadata
             'id', 'hostName', 'hostPhotoUrl', 'title', 'type', 'category',
             'propertyType', 'description', 'status', 'acceptingBookings',
-            'isListingFeeWaived', 'createdAt', 'updatedAt',
+            'isListingFeeWaived', 'listingFeePaid', 'areaKey', 'createdAt', 'updatedAt',
             // Pricing & deposit
             'pricePerMonth', 'priceMonthly', 'priceWeekly', 'priceDaily',
             'nightlyPrice', 'weeklyDiscount', 'monthlyDiscount', 'cleaningFee',
@@ -39,6 +41,7 @@
             'rentalDurationType', 'rentalMultiplier', 'startDate', 'endDate', 
             'totalCost', 'baseRentAmount', 'bookingFee', 
             'customerPlatformFeeRate', 'hostCommissionRate', 'renteeSignatureName', 
+            'signatureHash', 'renteeLicenseNumber',
             'signedAt', 'currentRequestId', 'allowChat', 'licenseNumber', 
             'verificationSelfieUrl', 'verificationGovtIdUrl', 'verificationStatus', 
             'hostIsVerified', 'hostVerificationStatus', 'hostVerificationTier', 
@@ -94,10 +97,10 @@
         allow read: if isAuthenticated() && docId == 'location' && !isPartnerToken();
         allow create, update: if isActiveUser() && docId == 'location' &&
           get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid;
-        allow delete: if false;
+        allow delete: if (isActiveUser() && get(/databases/$(database)/documents/properties/$(propertyId)).data.hostId == request.auth.uid) || isAdminOrStaff();
       }
 
-      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status == 'Available' || resource.data.status == 'available')) || isAdminOrStaff();
+      allow delete: if (isActiveUser() && resource.data.hostId == request.auth.uid && (resource.data.status in ['Available', 'available', 'Not Accepting Bookings', 'Archived', 'archived'])) || isAdminOrStaff();
 
       match /questions/{questionId} {
         allow read: if !isPartnerToken();
