@@ -17,3 +17,4 @@
 | 2026-10-29 | W58 Transaction History tabs/period/stat cards/CSV | COMMITTED | `796c791`; helpers + test in lib/client/ledger_summary.dart, test/ledger_summary_test.dart |
 | 2026-10-29 | W00 splash | COMMITTED | `e8f1dd4` index.html + Dart splash share .w00-splash |
 | 2026-11-20 | Web guest vehicle/property rentals | COMMITTED | Public listeners start before Firebase init and never restart for guests. Init Firebase in the rental listeners and keep listings that have no public coordinates. Rules unchanged. |
+| 2026-11-21 | Web App Check site key | COMMITTED | Prod web uses the admin portal reCAPTCHA Enterprise key. Dev and UAT still send no token. |
