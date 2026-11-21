@@ -54,9 +54,9 @@ class FirebaseConfig {
   }
 }
 
-/// Public reCAPTCHA Enterprise site key for the tranyx-app web app (Fraud Defense).
-/// Dev and UAT have no registered key, so those builds send no App Check token.
-const String kProdRecaptchaEnterpriseSiteKey = '6LcSphouAAAAAHFEBkUyC0F8wK01xo3FGyrVCjtM';
+/// Public reCAPTCHA Enterprise site key shared with the admin portal.
+/// Dev and UAT builds send no App Check token.
+const String kProdRecaptchaEnterpriseSiteKey = '6LfFzhIuAAAAABkcedlwaPlK48zlZ8Jj-gueIuEp';
 
 const String _appCheckSiteKey = String.fromEnvironment('ENV', defaultValue: 'dev') == 'prod'
     ? kProdRecaptchaEnterpriseSiteKey
