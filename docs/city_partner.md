@@ -8,7 +8,7 @@ Phase 1 of the admin desk uses `partnerAdmin` `accounts`, `create`, `update`, `s
 
 `ENFORCE_PARTNER_MFA` defaults off, so a partner can open the desk before Identity Platform MFA is enrolled. Set it to `true` after TOTP or phone enrollment; the callable then returns `failed-precondition` / `MFA_REQUIRED`. Firestore rules still require `firebase.sign_in_second_factor` of `totp` or `phone` before a partner token can read an area document directly.
 
-`create` and `passwordSetupLink` also provision the admin portal when `ADMIN_PORTAL_SERVICE_ACCOUNT` is set. That secret is a service account for `tranyx-admin-portal` only. The function creates the portal Auth user with no password, upserts `users/{portalUid}` with `role: partner` plus `partnerId` and areas, and returns `passwordSetupLink`. It never stores or returns a password. The link opens the admin portal sign-in page with `mode=resetPassword`. `passwordSetupLink` repeats that for an existing partner.
+`create` requires a password only for the admin-portal Auth user (`emailVerified: false`). It upserts `users/{portalUid}` with `role: partner` and never stores or returns the password. `setPartnerPassword` replaces that password. `resendVerification` returns a verification link for the portal's existing mail sender. `partnerDesk` rejects a partner token with `email_verified` not true, except `syncEmailVerified`, which copies a verified portal user onto the workspace user. `revenue` for a partner returns only that partner's `partnerShare` inside their areas. It omits gross, platform revenue, and the Tranyx share. Super admins still receive the full line. Partners cannot read `area_revenue` or `partner_statements` directly.
 
 ## Who can call what
 

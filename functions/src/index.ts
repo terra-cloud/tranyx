@@ -298,7 +298,26 @@ function adminPortalApp() {
     }),
     projectId: creds.project_id || 'tranyx-admin-portal',
   }, name);
-  return { auth: getAuth(app), db: getFirestore(app) };
+  const auth = getAuth(app);
+  return {
+    auth: {
+      async getUserByEmail(email: string) {
+        const user = await auth.getUserByEmail(email);
+        return { uid: user.uid, emailVerified: user.emailVerified };
+      },
+      async createUser(props: { email: string; password: string; emailVerified: boolean }) {
+        const user = await auth.createUser({ email: props.email, password: props.password, emailVerified: false });
+        return { uid: user.uid, emailVerified: user.emailVerified };
+      },
+      async updateUser(uid: string, props: { password?: string }) {
+        await auth.updateUser(uid, props.password ? { password: props.password } : {});
+      },
+      async generateEmailVerificationLink(email: string) {
+        return auth.generateEmailVerificationLink(email, { url: 'https://tranyx-admin-portal.web.app/' });
+      },
+    },
+    db: getFirestore(app),
+  };
 }
 
 /** City partner provisioning, payout approval, and the super-admin overview. Admin claim only. */
@@ -307,7 +326,7 @@ export const partnerAdmin = onCall(
   async (req) => {
     try {
       const action = req.data && typeof req.data === 'object' ? String((req.data as { action?: unknown }).action ?? '') : '';
-      const needsPortal = action === 'create' || action === 'passwordSetupLink';
+      const needsPortal = action === 'create' || action === 'setPartnerPassword' || action === 'resendVerification' || action === 'accounts';
       return await runPartnerAdmin({
         callerUid: req.auth?.uid,
         callerToken: req.auth?.token as Record<string, unknown> | undefined,
@@ -324,16 +343,19 @@ export const partnerAdmin = onCall(
   },
 );
 
-/** Partner desk reads, masked directory, review, and statement CSV. Partners need a second factor. */
+/** Partner desk reads, masked directory, review, and the partner's own share. Unverified partners are rejected. */
 export const partnerDesk = onCall(
-  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10 },
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10, secrets: [ADMIN_PORTAL_SERVICE_ACCOUNT] },
   async (req) => {
     try {
+      const action = req.data && typeof req.data === 'object' ? String((req.data as { action?: unknown }).action ?? '') : '';
       return await runPartnerDesk({
         callerUid: req.auth?.uid,
         callerToken: req.auth?.token as Record<string, unknown> | undefined,
         data: req.data,
         db: getFirestore(),
+        auth: getAuth(),
+        portal: action === 'syncEmailVerified' ? adminPortalApp() : undefined,
       });
     } catch (e) {
       if (e instanceof HttpsError) throw e;
