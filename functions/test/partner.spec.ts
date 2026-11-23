@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { attributePartnerRevenue, callerIsSuperAdmin as isSuper, partnerAdmin, partnerDesk } from '../src/partner';
+import { attributePartnerRevenue, callerIsSuperAdmin as isSuper, partnerAdmin, partnerDesk, type PortalAuth } from '../src/partner';
 import type { StaffAuth, StaffAuthUser } from '../src/staff_access';
 
 process.env.FIRESTORE_EMULATOR_HOST ??= '127.0.0.1:8189';
@@ -56,6 +56,27 @@ async function wipe() {
 
 function seedPartner(auth: MemoryAuth, uid: string, email: string) {
   auth.users.set(uid, { uid, email, customClaims: {} });
+}
+
+class MemoryPortalAuth implements PortalAuth {
+  users = new Map<string, { uid: string; email: string }>();
+  async getUserByEmail(email: string) {
+    const user = [...this.users.values()].find((row) => row.email === email);
+    if (!user) {
+      const error = new Error('missing') as Error & { code: string };
+      error.code = 'auth/user-not-found';
+      throw error;
+    }
+    return user;
+  }
+  async createUser(props: { email: string }) {
+    const user = { uid: `portal_${this.users.size + 1}`, email: props.email };
+    this.users.set(user.uid, user);
+    return user;
+  }
+  async generatePasswordResetLink(email: string) {
+    return `https://tranyx-admin-portal.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=setup-for-${email.split('@')[0]}`;
+  }
 }
 
 describe('city partner license', () => {
@@ -122,10 +143,18 @@ describe('city partner license', () => {
     await db.doc('rentals/r1').set({ areaKey: 'calbayog', status: 'Available', hostId: 'host1', brand: 'Honda', model: 'Click', plateNumber: 'ABC 123' });
     await db.doc('rentals/r2').set({ areaKey: 'tagbilaran', status: 'Available', hostId: 'host2', brand: 'Toyota', model: 'Vios', plateNumber: 'XYZ 9' });
     const token = { admin: false, role: 'partner', partnerId: 'pCal', firebase: { sign_in_second_factor: 'totp' } };
+    const withoutFactor = await partnerDesk({
+      callerUid: 'pCal', callerToken: { admin: false, role: 'partner', partnerId: 'pCal' }, db, now: OCT,
+      data: { action: 'profile' },
+    });
+    expect(withoutFactor.mfaEnrolled).toBe(false);
+    expect(withoutFactor.mfaEnforced).toBe(false);
+    process.env.ENFORCE_PARTNER_MFA = 'true';
     await expect(partnerDesk({
       callerUid: 'pCal', callerToken: { admin: false, role: 'partner', partnerId: 'pCal' }, db, now: OCT,
       data: { action: 'directory', kind: 'users', areaKey: 'calbayog' },
     })).rejects.toMatchObject({ code: 'failed-precondition' });
+    delete process.env.ENFORCE_PARTNER_MFA;
     const own = await partnerDesk({
       callerUid: 'pCal', callerToken: token, db, now: OCT,
       data: { action: 'directory', kind: 'users', areaKey: 'calbayog' },
@@ -156,6 +185,34 @@ describe('city partner license', () => {
       data: { action: 'review', kind: 'rental', id: 'r1', decision: 'verified' },
     });
     expect((await db.doc('rentals/r1').get()).get('partnerReview.status')).toBe('verified');
+    await db.doc('rental_requests/bCal').set({
+      areaKey: 'calbayog', status: 'Pending', renteeId: 'host1', hostId: 'host1',
+      phone: '+63917', email: 'maria@example.com', address: '12 Real St',
+    });
+    await db.doc('rental_requests/bTag').set({ areaKey: 'tagbilaran', status: 'Pending', renteeId: 'host2' });
+    await db.doc('supportTickets/tCal').set({ areaKey: 'calbayog', status: 'Open', subject: 'Pickup', userEmail: 'maria@example.com' });
+    const bookings = await partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'bookings', areaKey: 'calbayog' },
+    });
+    expect(bookings.records).toEqual([expect.objectContaining({ id: 'bCal', status: 'Pending' })]);
+    expect(JSON.stringify(bookings.records)).not.toContain('maria@example.com');
+    expect(JSON.stringify(bookings.records)).not.toContain('Real St');
+    await expect(partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'bookings', areaKey: 'tagbilaran' },
+    })).rejects.toMatchObject({ code: 'permission-denied' });
+    const tickets = await partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'tickets', areaKey: 'calbayog' },
+    });
+    expect(JSON.stringify(tickets.records)).toContain('Pickup');
+    expect(JSON.stringify(tickets.records)).not.toContain('maria@example.com');
+    const hosts = await partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'hosts', areaKey: 'calbayog' },
+    });
+    expect(hosts.records).toEqual([expect.objectContaining({ uid: 'host1', displayName: 'Maria S.' })]);
   });
 
   it('reverses settled area revenue and ignores subscriptions while the flag is off', async () => {
@@ -226,5 +283,36 @@ describe('city partner license', () => {
     });
     expect(dash.earningsToDate).toBe(42);
     expect(dash.targets).toMatchObject({ activeListings: 30, activeProviders: 30, byMonth: 6 });
+  });
+
+  it('upserts the admin-portal users doc as partner and returns a setup link, never a password', async () => {
+    seedPartner(auth, 'pCal', 'cal@example.com');
+    const portalAuth = new MemoryPortalAuth();
+    const created = await partnerAdmin({
+      callerUid: 'root', callerToken: superToken, auth, db, now: OCT,
+      portal: { auth: portalAuth, db },
+      data: {
+        action: 'create', email: 'cal@example.com',
+        areas: [{ city: 'Calbayog', province: 'Samar' }],
+        portalOrigin: 'https://evil.example',
+      },
+    });
+    expect(created.portalUid).toBe('portal_1');
+    expect(created.passwordSetupLink).toBe('https://tranyx-admin-portal.web.app/?mode=resetPassword&oobCode=setup-for-cal');
+    expect(created).not.toHaveProperty('password');
+    const doc = await db.doc('users/portal_1').get();
+    expect(doc.get('role')).toBe('partner');
+    expect(doc.get('partnerId')).toBe('pCal');
+    expect(doc.get('email')).toBe('cal@example.com');
+    expect(doc.get('areaKeys')).toEqual(['calbayog']);
+    expect(doc.data()).not.toHaveProperty('password');
+    const resent = await partnerAdmin({
+      callerUid: 'root', callerToken: superToken, auth, db, now: OCT,
+      portal: { auth: portalAuth, db },
+      data: { action: 'passwordSetupLink', email: 'cal@example.com' },
+    });
+    expect(resent.portalUid).toBe('portal_1');
+    expect(resent.passwordSetupLink).toContain('oobCode=');
+    expect((await db.doc('users/portal_1').get()).get('role')).toBe('partner');
   });
 });

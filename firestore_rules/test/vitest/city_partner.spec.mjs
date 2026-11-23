@@ -31,6 +31,9 @@ describe('city partner area isolation', () => {
       'tickets/tag': { areaKey: 'tagbilaran', userId: 'r2', status: 'Open' },
       'users/r1': { uid: 'r1', name: 'Maria Santos', email: 'maria@example.com', areaKey: 'calbayog' },
       'settings/platform_fees': { listingFeeRate: 0 },
+      'system_config/settings': { claimTimeoutSeconds: 180 },
+      'withdrawal_requests/w1': { uid: 'r1', amount: 500, status: 'WAITING_FOR_AGENT' },
+      'partner_payouts/other_2026-10': { partnerId: 'other', amount: 42, status: 'pending' },
       'rentals/cal/private/location': { address: '12 Real St, Calbayog' },
     });
     const cal = partner('pCal', 'pCal');
@@ -46,6 +49,9 @@ describe('city partner area isolation', () => {
     await assertFails(getDoc(doc(cal, 'tickets/tag')));
     await assertFails(getDoc(doc(cal, 'users/r1')));
     await assertFails(getDoc(doc(cal, 'settings/platform_fees')));
+    await assertFails(getDoc(doc(cal, 'system_config/settings')));
+    await assertFails(getDoc(doc(cal, 'withdrawal_requests/w1')));
+    await assertFails(getDoc(doc(cal, 'partner_payouts/other_2026-10')));
     await assertFails(getDoc(doc(cal, 'rentals/cal/private/location')));
     await assertFails(updateDoc(doc(cal, 'users/r1'), { suspendedUntil: Date.now() + 86_400_000, banned: true }));
     await assertSucceeds(getDoc(doc(user('guest'), 'rentals/tag')));

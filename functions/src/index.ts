@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase-admin/app';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
@@ -47,6 +47,8 @@ const ENFORCE_APP_CHECK = defineBoolean('ENFORCE_APP_CHECK', { default: false })
  * Accepts the 64-byte secret key as base58 or as a JSON byte array.
  */
 const TREASURY_SECRET = defineSecret('SOLANA_TREASURY_SECRET_KEY');
+/** Service account JSON for tranyx-admin-portal. Used only to create the partner Auth user and users doc. */
+const ADMIN_PORTAL_SERVICE_ACCOUNT = defineSecret('ADMIN_PORTAL_SERVICE_ACCOUNT');
 
 /** Test hooks: only honoured inside the local Functions emulator, never in a deployed function. */
 const isEmulator = () => process.env.FUNCTIONS_EMULATOR === 'true';
@@ -264,17 +266,55 @@ export const listingFee = onCall(moneyOpts, (req) => moneyGuard('listingFee', ()
 /** Gig money: create | accept | complete | cancel | reclaim | delete | releaseHoldbacks. */
 export const jobAction = onCall(moneyOpts, (req) => moneyGuard('jobAction', () => runJobAction(moneyDeps(), caller(req), req.data)));
 
+function adminPortalApp() {
+  let raw = '';
+  try {
+    raw = ADMIN_PORTAL_SERVICE_ACCOUNT.value();
+  } catch {
+    raw = '';
+  }
+  if (!raw.trim()) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Admin portal provisioning is not configured. Set ADMIN_PORTAL_SERVICE_ACCOUNT for tranyx-admin-portal.',
+      { code: 'PORTAL_ACCOUNT_UNAVAILABLE' },
+    );
+  }
+  let creds: { project_id?: string; client_email?: string; private_key?: string };
+  try {
+    creds = JSON.parse(raw) as { project_id?: string; client_email?: string; private_key?: string };
+  } catch {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  if (!creds.client_email || !creds.private_key) {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  const name = 'tranyx-admin-portal';
+  const app = getApps().find((item) => item.name === name) ?? initializeApp({
+    credential: cert({
+      projectId: creds.project_id || 'tranyx-admin-portal',
+      clientEmail: creds.client_email,
+      privateKey: creds.private_key,
+    }),
+    projectId: creds.project_id || 'tranyx-admin-portal',
+  }, name);
+  return { auth: getAuth(app), db: getFirestore(app) };
+}
+
 /** City partner provisioning, payout approval, and the super-admin overview. Admin claim only. */
 export const partnerAdmin = onCall(
-  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10 },
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 60, maxInstances: 10, secrets: [ADMIN_PORTAL_SERVICE_ACCOUNT] },
   async (req) => {
     try {
+      const action = req.data && typeof req.data === 'object' ? String((req.data as { action?: unknown }).action ?? '') : '';
+      const needsPortal = action === 'create' || action === 'passwordSetupLink';
       return await runPartnerAdmin({
         callerUid: req.auth?.uid,
         callerToken: req.auth?.token as Record<string, unknown> | undefined,
         data: req.data,
         auth: getAuth(),
         db: getFirestore(),
+        portal: needsPortal ? adminPortalApp() : undefined,
       });
     } catch (e) {
       if (e instanceof HttpsError) throw e;
