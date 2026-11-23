@@ -122,10 +122,18 @@ describe('city partner license', () => {
     await db.doc('rentals/r1').set({ areaKey: 'calbayog', status: 'Available', hostId: 'host1', brand: 'Honda', model: 'Click', plateNumber: 'ABC 123' });
     await db.doc('rentals/r2').set({ areaKey: 'tagbilaran', status: 'Available', hostId: 'host2', brand: 'Toyota', model: 'Vios', plateNumber: 'XYZ 9' });
     const token = { admin: false, role: 'partner', partnerId: 'pCal', firebase: { sign_in_second_factor: 'totp' } };
+    const withoutFactor = await partnerDesk({
+      callerUid: 'pCal', callerToken: { admin: false, role: 'partner', partnerId: 'pCal' }, db, now: OCT,
+      data: { action: 'profile' },
+    });
+    expect(withoutFactor.mfaEnrolled).toBe(false);
+    expect(withoutFactor.mfaEnforced).toBe(false);
+    process.env.ENFORCE_PARTNER_MFA = 'true';
     await expect(partnerDesk({
       callerUid: 'pCal', callerToken: { admin: false, role: 'partner', partnerId: 'pCal' }, db, now: OCT,
       data: { action: 'directory', kind: 'users', areaKey: 'calbayog' },
     })).rejects.toMatchObject({ code: 'failed-precondition' });
+    delete process.env.ENFORCE_PARTNER_MFA;
     const own = await partnerDesk({
       callerUid: 'pCal', callerToken: token, db, now: OCT,
       data: { action: 'directory', kind: 'users', areaKey: 'calbayog' },
@@ -156,6 +164,34 @@ describe('city partner license', () => {
       data: { action: 'review', kind: 'rental', id: 'r1', decision: 'verified' },
     });
     expect((await db.doc('rentals/r1').get()).get('partnerReview.status')).toBe('verified');
+    await db.doc('rental_requests/bCal').set({
+      areaKey: 'calbayog', status: 'Pending', renteeId: 'host1', hostId: 'host1',
+      phone: '+63917', email: 'maria@example.com', address: '12 Real St',
+    });
+    await db.doc('rental_requests/bTag').set({ areaKey: 'tagbilaran', status: 'Pending', renteeId: 'host2' });
+    await db.doc('supportTickets/tCal').set({ areaKey: 'calbayog', status: 'Open', subject: 'Pickup', userEmail: 'maria@example.com' });
+    const bookings = await partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'bookings', areaKey: 'calbayog' },
+    });
+    expect(bookings.records).toEqual([expect.objectContaining({ id: 'bCal', status: 'Pending' })]);
+    expect(JSON.stringify(bookings.records)).not.toContain('maria@example.com');
+    expect(JSON.stringify(bookings.records)).not.toContain('Real St');
+    await expect(partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'bookings', areaKey: 'tagbilaran' },
+    })).rejects.toMatchObject({ code: 'permission-denied' });
+    const tickets = await partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'tickets', areaKey: 'calbayog' },
+    });
+    expect(JSON.stringify(tickets.records)).toContain('Pickup');
+    expect(JSON.stringify(tickets.records)).not.toContain('maria@example.com');
+    const hosts = await partnerDesk({
+      callerUid: 'pCal', callerToken: token, db, now: OCT,
+      data: { action: 'directory', kind: 'hosts', areaKey: 'calbayog' },
+    });
+    expect(hosts.records).toEqual([expect.objectContaining({ uid: 'host1', displayName: 'Maria S.' })]);
   });
 
   it('reverses settled area revenue and ignores subscriptions while the flag is off', async () => {
