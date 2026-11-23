@@ -19,3 +19,4 @@
 | 2026-11-20 | Web guest vehicle/property rentals | COMMITTED | Public listeners start before Firebase init and never restart for guests. Init Firebase in the rental listeners and keep listings that have no public coordinates. Rules unchanged. |
 | 2026-11-21 | Web App Check site key | COMMITTED | Prod web uses the admin portal reCAPTCHA Enterprise key. Dev and UAT still send no token. |
 | 2026-11-21 | Web reCAPTCHA CSP and site key | COMMITTED | Allow reCAPTCHA Enterprise connect hosts the strict CSP blocked, and use the Website/Score key whose domains include tranyx.app. |
+| 2026-11-23 | Web sign-up rental note | COMMITTED | Nyxian and Employer cards say either account can rent out and rent vehicles and properties. |
