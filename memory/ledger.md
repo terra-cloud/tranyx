@@ -20,5 +20,6 @@
 | 2026-11-21 | Web App Check site key | COMMITTED | Prod web uses the admin portal reCAPTCHA Enterprise key. Dev and UAT still send no token. |
 | 2026-11-21 | Web reCAPTCHA CSP and site key | COMMITTED | Allow reCAPTCHA Enterprise connect hosts the strict CSP blocked, and use the Website/Score key whose domains include tranyx.app. |
 | 2026-11-23 | Web sign-up rental note | COMMITTED | Nyxian and Employer cards say either account can rent out and rent vehicles and properties. |
+| 2026-11-23 | P2P 24h auto-expire | COMMITTED | reconcileWithdrawals cancels unclaimed P2P deposits and cashouts older than 24h and refunds a held cashout once. |
 | 2026-11-23 | TRAD-15 phase 1 partner desk | IN PROGRESS | Area lists (hosts, renters, listings, providers, gigs, bookings, tickets) stay on partnerDesk and stay masked. Callable 2FA is off until ENFORCE_PARTNER_MFA=true. Rules still deny a partner token with no second factor, other areas, users, fees, config, and payouts. |
 | 2026-11-23 | TRAD-15 partner portal account | IN PROGRESS | create upserts the admin-portal users doc as role partner and returns a password-setup link. No plaintext password. |

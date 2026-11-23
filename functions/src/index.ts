@@ -11,6 +11,7 @@ import { processCredit, type CreditDeps } from './credit';
 import { RpcChainReader } from './solana_chain';
 import { Web3SolanaPayer } from './solana';
 import { processP2pAction, processWithdrawal, reconcileAll, type Deps } from './withdraw';
+import { expireStaleP2p } from './p2p_expire';
 import { issueNonce, walletLink, walletSignIn, walletStatus, type WalletAuthDeps } from './wallet_auth';
 import { uploadImage } from './image_upload';
 import { runGeminiAssist } from './gemini';
@@ -149,7 +150,8 @@ export const reconcileWithdrawals = onSchedule(
   { schedule: 'every 5 minutes', timeoutSeconds: 300, maxInstances: 1, secrets: [TREASURY_SECRET] },
   async () => {
     const res = await reconcileAll(withdrawDeps());
-    logger.info('reconcileWithdrawals', res);
+    const expired = await expireStaleP2p(withdrawDeps());
+    logger.info('reconcileWithdrawals', { ...res, ...expired });
   },
 );
 

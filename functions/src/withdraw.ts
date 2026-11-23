@@ -774,7 +774,7 @@ export async function reconcileAll(deps: Deps, opts: { stalePendingMs?: number }
 // now asks this function, which does the refund in ONE transaction guarded on the request status, and
 // the rules deny every owner write to withdrawal docs and their ledger rows.
 
-const CANCELLABLE = ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING'];
+export const CANCELLABLE = ['WAITING_FOR_AGENT', 'PENDING_REVIEW', 'PENDING'];
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 export interface P2pActionInput {
@@ -793,12 +793,119 @@ export function parseP2pAction(data: unknown): P2pActionInput {
   return { id, action: d.action, reason: str(d.reason, 500) };
 }
 
+/**
+ * The owner-cancel transaction: one status-guarded refund. System expiry calls this with
+ * enforceOwner false so a scheduler can refund the same way without a signed-in owner.
+ */
+export async function cancelP2pCashout(
+  deps: Deps,
+  opts: { id: string; actorUid?: string; reason: string; enforceOwner: boolean; audit?: boolean },
+) {
+  const { db } = deps;
+  return db.runTransaction(async (tx) => {
+    const reqPath = reqRef(db, opts.id);
+    const mirror = mirrorRef(db, opts.id);
+    const txMainRef = db.doc(`transactions/p2p_with_${opts.id}`);
+    const reqSnap = await tx.get(reqPath);
+    const cur = reqSnap.data();
+    if (!cur) throw new HttpsError('not-found', 'Withdrawal request not found.');
+    const ownerIds = ['uid', 'userId', 'user_id', 'ownerId', 'ownerUid', 'owner', 'accountId', 'accountUid', 'walletOwnerId']
+      .map((k) => (typeof cur[k] === 'string' ? cur[k].trim().replace(/^(?:users|wallets)\//, '') : ''))
+      .filter((id) => id.length > 0);
+    const owner = ownerIds[0] ?? '';
+    if (opts.enforceOwner) {
+      const uid = opts.actorUid ?? '';
+      if (ownerIds.length === 0 || ownerIds.some((id) => id !== uid)) {
+        if (ownerIds.some((id) => id === uid)) {
+          throw new HttpsError('failed-precondition', 'The request owner is inconsistent.', { code: 'OWNER_MISMATCH' });
+        }
+        throw new HttpsError('not-found', 'Withdrawal request not found.');
+      }
+    } else if (!owner || ownerIds.some((id) => id !== owner)) {
+      throw new HttpsError('failed-precondition', 'The request owner is inconsistent.', { code: 'OWNER_MISMATCH' });
+    }
+    if (cur.method === 'solana') {
+      throw new HttpsError('failed-precondition', 'Only P2P cashouts can be changed here.');
+    }
+    const uid = opts.enforceOwner ? (opts.actorUid as string) : owner;
+    const txWalletRef = db.doc(`wallets/${uid}/transactions/${opts.id}`);
+    const [mirrorSnap, mainSnap, walletSnap] = await Promise.all([tx.get(mirror), tx.get(txMainRef), tx.get(txWalletRef)]);
+    const status = String(cur.status ?? '').toUpperCase();
+    const now = deps.now();
+    const amount = Number(cur.amount);
+    const amountCents = Math.round(amount * 100);
+    if (status === 'CANCELLED') return { ok: true, id: opts.id, status: 'CANCELLED', alreadyDone: true, refunded: false };
+    if (!CANCELLABLE.includes(status)) {
+      throw new HttpsError('failed-precondition', 'This cashout can no longer be cancelled.');
+    }
+    const refund = cur.balanceDeducted === true;
+    let userWrite: { balance: number } | null = null;
+    let usageWrite: { ref: ReturnType<Firestore['doc']>; count: number; totalCents: number } | null = null;
+    if (refund) {
+      const usageRef = db.doc(`withdrawal_usage/${uid}_${manilaDay(Number(cur.createdAt ?? now))}`);
+      const [userSnap, usageSnap] = await Promise.all([tx.get(db.doc(`users/${uid}`)), tx.get(usageRef)]);
+      const bal = Math.round(Number(userSnap.get('tyxBalance') ?? 0) * 100);
+      userWrite = { balance: (bal + amountCents) / 100 };
+      if (usageSnap.exists) {
+        usageWrite = {
+          ref: usageRef,
+          count: Math.max(0, Number(usageSnap.get('count') ?? 0) - 1),
+          totalCents: Math.max(0, Number(usageSnap.get('totalCents') ?? 0) - amountCents),
+        };
+      }
+    }
+    const note = refund ? `₱${amount.toFixed(2)} refunded to wallet.` : 'Request cancelled.';
+    const patch = {
+      status: 'CANCELLED',
+      p2pStatus: 'CANCELLED',
+      payoutState: 'cancelled',
+      balanceDeducted: false,
+      ...(refund ? { refundedAt: now } : {}),
+      ...(opts.reason ? { rejectionReason: opts.reason } : {}),
+      verifiedAt: now,
+      updatedAt: now,
+    };
+    const ledgerPatch = { status: 'CANCELLED', desc: `Cashout cancelled. ${note}`, description: `Cashout cancelled. ${note}`, verifiedAt: now, updatedAt: now };
+    if (userWrite) tx.set(db.doc(`users/${uid}`), { tyxBalance: userWrite.balance, updatedAt: now }, { merge: true });
+    if (usageWrite) tx.set(usageWrite.ref, { count: usageWrite.count, totalCents: usageWrite.totalCents }, { merge: true });
+    tx.set(reqPath, patch, { merge: true });
+    if (mirrorSnap.exists) tx.set(mirror, patch, { merge: true });
+    if (mainSnap.exists) tx.set(txMainRef, ledgerPatch, { merge: true });
+    if (walletSnap.exists) tx.set(txWalletRef, ledgerPatch, { merge: true });
+    if (opts.audit) {
+      tx.set(db.doc(`staff_audit_log/p2p_expire_wd_${opts.id}`), {
+        action: 'expireP2pWithdrawal',
+        actorUid: 'system',
+        actorRole: 'system',
+        withdrawalId: opts.id,
+        owner: uid,
+        amount,
+        reason: opts.reason,
+        refunded: refund,
+        balanceAfter: userWrite?.balance ?? null,
+        createdAt: now,
+      });
+    }
+    return {
+      ok: true,
+      id: opts.id,
+      status: 'CANCELLED',
+      alreadyDone: false,
+      refunded: refund,
+      ...(userWrite ? { newBalance: userWrite.balance } : {}),
+    };
+  });
+}
+
 export async function processP2pAction(deps: Deps, auth: CallerAuth | undefined, data: unknown) {
   const { db } = deps;
   if (!auth?.uid) throw new HttpsError('unauthenticated', 'Sign in to continue.');
   const uid = auth.uid;
   const input = parseP2pAction(data);
   // NOTE: deliberately NOT gated by the withdrawal kill switch: users must always be able to cancel + get refunded.
+  if (input.action === 'cancel') {
+    return cancelP2pCashout(deps, { id: input.id, actorUid: uid, reason: input.reason, enforceOwner: true });
+  }
 
   return db.runTransaction(async (tx) => {
     const reqPath = reqRef(db, input.id);
@@ -827,63 +934,22 @@ export async function processP2pAction(deps: Deps, auth: CallerAuth | undefined,
     const status = String(cur.status ?? '').toUpperCase();
     const now = deps.now();
     const amount = Number(cur.amount);
-    const amountCents = Math.round(amount * 100);
 
-    let patch: Record<string, any>;
-    let ledgerPatch: Record<string, any>;
-    let userWrite: { balance: number } | null = null;
-    let usageWrite: { ref: ReturnType<Firestore['doc']>; count: number; totalCents: number } | null = null;
-
-    if (input.action === 'cancel') {
-      if (status === 'CANCELLED') return { ok: true, id: input.id, status: 'CANCELLED', alreadyDone: true };
-      if (!CANCELLABLE.includes(status)) {
-        throw new HttpsError('failed-precondition', 'This cashout can no longer be cancelled.');
-      }
-      const refund = cur.balanceDeducted === true;
-      if (refund) {
-        const usageRef = db.doc(`withdrawal_usage/${uid}_${manilaDay(Number(cur.createdAt ?? now))}`);
-        const [userSnap, usageSnap] = await Promise.all([tx.get(db.doc(`users/${uid}`)), tx.get(usageRef)]);
-        const bal = Math.round(Number(userSnap.get('tyxBalance') ?? 0) * 100);
-        userWrite = { balance: (bal + amountCents) / 100 };
-        if (usageSnap.exists) {
-          usageWrite = {
-            ref: usageRef,
-            count: Math.max(0, Number(usageSnap.get('count') ?? 0) - 1),
-            totalCents: Math.max(0, Number(usageSnap.get('totalCents') ?? 0) - amountCents),
-          };
-        }
-      }
-      const note = refund ? `₱${amount.toFixed(2)} refunded to wallet.` : 'Request cancelled.';
-      patch = {
-        status: 'CANCELLED',
-        p2pStatus: 'CANCELLED',
-        payoutState: 'cancelled',
-        balanceDeducted: false,
-        ...(refund ? { refundedAt: now } : {}),
-        ...(input.reason ? { rejectionReason: input.reason } : {}),
-        verifiedAt: now,
-        updatedAt: now,
-      };
-      ledgerPatch = { status: 'CANCELLED', desc: `Cashout cancelled. ${note}`, description: `Cashout cancelled. ${note}`, verifiedAt: now, updatedAt: now };
-    } else {
-      if (status === 'APPROVED') return { ok: true, id: input.id, status: 'APPROVED', alreadyDone: true };
-      if (status !== 'PENDING_CONFIRMATION') {
-        throw new HttpsError('failed-precondition', 'There is nothing to confirm yet: the agent has not sent proof of payment.', { code: 'PROOF_REQUIRED' });
-      }
-      const method = String(cur.paymentMethod ?? cur.payoutMethod ?? 'GCash');
-      const ref = String(cur.referenceNumber ?? '').trim();
-      const proof = String(cur.proofImageUrl ?? '').trim();
-      if (!ref || !/^https:\/\//i.test(proof)) {
-        throw new HttpsError('failed-precondition', 'There is nothing to confirm yet: the agent has not sent proof of payment.', { code: 'PROOF_REQUIRED' });
-      }
-      const desc = ref ? `Cashout completed via ${method} (Ref: #${ref})` : `Cashout completed via ${method}`;
-      patch = { status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: uid, verifiedAt: now, updatedAt: now };
-      ledgerPatch = { status: 'COMPLETED', desc, description: desc, verifiedAt: now, adminUid: uid, updatedAt: now };
+    if (status === 'APPROVED') return { ok: true, id: input.id, status: 'APPROVED', alreadyDone: true };
+    if (status !== 'PENDING_CONFIRMATION') {
+      throw new HttpsError('failed-precondition', 'There is nothing to confirm yet: the agent has not sent proof of payment.', { code: 'PROOF_REQUIRED' });
     }
+    const method = String(cur.paymentMethod ?? cur.payoutMethod ?? 'GCash');
+    const ref = String(cur.referenceNumber ?? '').trim();
+    const proof = String(cur.proofImageUrl ?? '').trim();
+    if (!ref || !/^https:\/\//i.test(proof)) {
+      throw new HttpsError('failed-precondition', 'There is nothing to confirm yet: the agent has not sent proof of payment.', { code: 'PROOF_REQUIRED' });
+    }
+    const desc = ref ? `Cashout completed via ${method} (Ref: #${ref})` : `Cashout completed via ${method}`;
+    const patch = { status: 'APPROVED', p2pStatus: 'COMPLETED', adminUid: uid, verifiedAt: now, updatedAt: now };
+    const ledgerPatch = { status: 'COMPLETED', desc, description: desc, verifiedAt: now, adminUid: uid, updatedAt: now };
 
     // all reads done; writes below
-    if (userWrite) tx.set(db.doc(`users/${uid}`), { tyxBalance: userWrite.balance, updatedAt: now }, { merge: true });
-    if (usageWrite) tx.set(usageWrite.ref, { count: usageWrite.count, totalCents: usageWrite.totalCents }, { merge: true });
     tx.set(reqPath, patch, { merge: true });
     if (mirrorSnap.exists) tx.set(mirror, patch, { merge: true });
     if (mainSnap.exists) tx.set(txMainRef, ledgerPatch, { merge: true });
@@ -904,7 +970,6 @@ export async function processP2pAction(deps: Deps, auth: CallerAuth | undefined,
       id: input.id,
       status: patch.status as string,
       alreadyDone: false,
-      ...(userWrite ? { newBalance: userWrite.balance } : {}),
     };
   });
 }
