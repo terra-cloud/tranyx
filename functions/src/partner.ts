@@ -168,6 +168,119 @@ async function lockAreas(tx: Transaction, db: Firestore, partnerId: string, area
   }
 }
 
+export interface PortalAuth {
+  getUserByEmail(email: string): Promise<{ uid: string }>;
+  createUser(props: { email: string }): Promise<{ uid: string }>;
+  generatePasswordResetLink(email: string): Promise<string>;
+}
+
+const DEFAULT_PORTAL_ORIGIN = 'https://tranyx-admin-portal.web.app';
+
+/** Only the admin portal's own hosting origins. A caller cannot point the setup link at another site. */
+export function allowedPortalOrigin(value: unknown): string {
+  const raw = str(value, 200);
+  if (!raw) return DEFAULT_PORTAL_ORIGIN;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname;
+    const preview = host.startsWith('tranyx-admin-portal--') && host.endsWith('.web.app');
+    const ok = url.protocol === 'https:' && (
+      host === 'tranyx-admin-portal.web.app' ||
+      host === 'tranyx-admin-portal.firebaseapp.com' ||
+      preview
+    );
+    return ok ? `${url.protocol}//${url.host}` : DEFAULT_PORTAL_ORIGIN;
+  } catch {
+    return DEFAULT_PORTAL_ORIGIN;
+  }
+}
+
+/** Moves the Firebase oob code onto the portal sign-in page. The link is not a password. */
+export function portalPasswordSetupLink(rawLink: string, origin: string): string {
+  const code = new URL(rawLink).searchParams.get('oobCode');
+  if (!code) throw new HttpsError('internal', 'Password setup link was not issued.');
+  return `${origin}/?mode=resetPassword&oobCode=${encodeURIComponent(code)}`;
+}
+
+/** Creates the admin-portal Auth user if needed and sets users/{uid}.role to partner. Never writes a password. */
+export async function upsertPortalPartner(input: {
+  portalAuth: PortalAuth;
+  portalDb: Firestore;
+  email: string;
+  partnerId: string;
+  areas: unknown;
+  areaKeys: string[];
+  status: string;
+  now: number;
+  portalOrigin?: unknown;
+}): Promise<{ portalUid: string; created: boolean; passwordSetupLink: string }> {
+  const email = input.email.trim().toLowerCase();
+  let created = false;
+  let portalUid = '';
+  try {
+    portalUid = (await input.portalAuth.getUserByEmail(email)).uid;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code !== 'auth/user-not-found') throw error;
+    portalUid = (await input.portalAuth.createUser({ email })).uid;
+    created = true;
+  }
+  const ref = input.portalDb.doc(`users/${portalUid}`);
+  const existing = await ref.get();
+  await ref.set({
+    uid: portalUid,
+    email,
+    role: 'partner',
+    partnerId: input.partnerId,
+    areas: input.areas,
+    areaKeys: input.areaKeys,
+    status: input.status,
+    name: email.split('@')[0] || 'Partner',
+    updatedAt: input.now,
+    createdAt: existing.exists ? existing.get('createdAt') ?? input.now : input.now,
+  }, { merge: true });
+  const raw = await input.portalAuth.generatePasswordResetLink(email);
+  return {
+    portalUid,
+    created,
+    passwordSetupLink: portalPasswordSetupLink(raw, allowedPortalOrigin(input.portalOrigin)),
+  };
+}
+
+async function issuePasswordSetupLink(input: {
+  data: unknown;
+  db: Firestore;
+  portal?: { auth: PortalAuth; db: Firestore };
+}, actor: string, now: number) {
+  if (!input.portal) {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
+  const email = str(body.email, 254).toLowerCase();
+  let partnerId = str(body.partnerId, 128);
+  const snap = partnerId
+    ? await input.db.doc(`partners/${partnerId}`).get()
+    : email.includes('@')
+      ? (await input.db.collection('partners').where('email', '==', email).limit(1).get()).docs[0]
+      : undefined;
+  if (!snap || !snap.exists) throw new HttpsError('not-found', 'Partner not found.');
+  partnerId = snap.id;
+  const targetEmail = email.includes('@') ? email : str(snap.get('email'), 254).toLowerCase();
+  if (!targetEmail.includes('@')) throw new HttpsError('invalid-argument', 'A partner email is required.');
+  const portal = await upsertPortalPartner({
+    portalAuth: input.portal.auth,
+    portalDb: input.portal.db,
+    email: targetEmail,
+    partnerId,
+    areas: snap.get('areas') ?? [],
+    areaKeys: Array.isArray(snap.get('areaKeys')) ? snap.get('areaKeys') as string[] : [],
+    status: str(snap.get('status'), 20) || 'active',
+    now,
+    portalOrigin: body.portalOrigin,
+  });
+  return { ok: true, partnerId, email: targetEmail, actorUid: actor, ...portal };
+}
+
 export async function partnerAdmin(input: {
   callerUid: string | undefined;
   callerToken: Token;
@@ -175,6 +288,7 @@ export async function partnerAdmin(input: {
   auth: StaffAuth;
   db: Firestore;
   now?: number;
+  portal?: { auth: PortalAuth; db: Firestore };
 }): Promise<Doc> {
   const actor = requireSuper(input.callerUid, input.callerToken);
   const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
@@ -184,6 +298,7 @@ export async function partnerAdmin(input: {
 
   if (action === 'overview') return partnerOverview(db, now);
   if (action === 'accounts') return partnerAccounts(db);
+  if (action === 'passwordSetupLink') return issuePasswordSetupLink(input, actor, now);
   if (action === 'setRevenueConfig') {
     if (typeof body.includeSubscriptions !== 'boolean') {
       throw new HttpsError('invalid-argument', 'includeSubscriptions must be true or false.');
@@ -236,7 +351,20 @@ export async function partnerAdmin(input: {
       audit(tx, db, 'create', partnerId, now, { actorUid: actor, email, areaKeys: profile.areaKeys, created });
     });
     await input.auth.setCustomUserClaims(partnerId, { admin: false, role: 'partner', partnerId });
-    return { ok: true, partnerId, email, created, status: 'active', renewalDate };
+    const portal = input.portal
+      ? await upsertPortalPartner({
+        portalAuth: input.portal.auth,
+        portalDb: input.portal.db,
+        email,
+        partnerId,
+        areas,
+        areaKeys: areas.map((area) => area.areaKey),
+        status: 'active',
+        now,
+        portalOrigin: body.portalOrigin,
+      })
+      : {};
+    return { ok: true, partnerId, email, created, status: 'active', renewalDate, ...portal };
   }
 
   const partnerId = str(body.partnerId, 128);

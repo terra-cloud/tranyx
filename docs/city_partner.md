@@ -8,6 +8,8 @@ Phase 1 of the admin desk uses `partnerAdmin` `accounts`, `create`, `update`, `s
 
 `ENFORCE_PARTNER_MFA` defaults off, so a partner can open the desk before Identity Platform MFA is enrolled. Set it to `true` after TOTP or phone enrollment; the callable then returns `failed-precondition` / `MFA_REQUIRED`. Firestore rules still require `firebase.sign_in_second_factor` of `totp` or `phone` before a partner token can read an area document directly.
 
+`create` and `passwordSetupLink` also provision the admin portal when `ADMIN_PORTAL_SERVICE_ACCOUNT` is set. That secret is a service account for `tranyx-admin-portal` only. The function creates the portal Auth user with no password, upserts `users/{portalUid}` with `role: partner` plus `partnerId` and areas, and returns `passwordSetupLink`. It never stores or returns a password. The link opens the admin portal sign-in page with `mode=resetPassword`. `passwordSetupLink` repeats that for an existing partner.
+
 ## Who can call what
 
 Super admin means an ID token with the admin claim `admin: true` and role `admin`, `superadmin`, or `super_admin` (or `superadmin: true`). That is the same top account `syncStaffAccess` provisions as admin. A staff, agent, or partner token is rejected.
