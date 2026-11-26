@@ -23,3 +23,4 @@
 | 2026-11-23 | P2P 24h auto-expire | COMMITTED | reconcileWithdrawals cancels unclaimed P2P deposits and cashouts older than 24h and refunds a held cashout once. |
 | 2026-11-23 | TRAD-15 phase 1 partner desk | IN PROGRESS | Area lists (hosts, renters, listings, providers, gigs, bookings, tickets) stay on partnerDesk and stay masked. Callable 2FA is off until ENFORCE_PARTNER_MFA=true. Rules still deny a partner token with no second factor, other areas, users, fees, config, and payouts. |
 | 2026-11-23 | TRAD-15 partner portal account | IN PROGRESS | create upserts the admin-portal users doc as role partner and returns a password-setup link. No plaintext password. |
+| 2026-11-23 | TRAD-15 partner verify and share | IN PROGRESS | Partners sign in with an initial password, must verify email, and the revenue callable returns only their partnerShare. |

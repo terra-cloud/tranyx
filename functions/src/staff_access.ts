@@ -16,7 +16,8 @@ export interface StaffAuthUser {
 export interface StaffAuth {
   getUser(uid: string): Promise<StaffAuthUser>;
   getUserByEmail(email: string): Promise<StaffAuthUser>;
-  createUser(props: { email: string }): Promise<StaffAuthUser>;
+  createUser(props: { email: string; password?: string }): Promise<StaffAuthUser>;
+  updateUser?(uid: string, props: { password?: string; emailVerified?: boolean }): Promise<unknown>;
   setCustomUserClaims(uid: string, claims: Record<string, unknown>): Promise<void>;
 }
 

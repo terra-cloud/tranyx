@@ -122,7 +122,7 @@ function targetsOf(input: unknown) {
 }
 
 function sharesOf(partnerShareBps: unknown) {
-  const partner = partnerShareBps == null ? 7000 : Math.floor(numOf(partnerShareBps, NaN));
+  const partner = partnerShareBps == null ? 3000 : Math.floor(numOf(partnerShareBps, NaN));
   if (!Number.isInteger(partner) || partner < 0 || partner > 10000) {
     throw new HttpsError('invalid-argument', 'partnerShareBps must be an integer from 0 to 10000.');
   }
@@ -169,9 +169,24 @@ async function lockAreas(tx: Transaction, db: Firestore, partnerId: string, area
 }
 
 export interface PortalAuth {
-  getUserByEmail(email: string): Promise<{ uid: string }>;
-  createUser(props: { email: string }): Promise<{ uid: string }>;
-  generatePasswordResetLink(email: string): Promise<string>;
+  getUserByEmail(email: string): Promise<{ uid: string; emailVerified?: boolean }>;
+  createUser(props: { email: string; password: string; emailVerified: boolean }): Promise<{ uid: string; emailVerified?: boolean }>;
+  updateUser(uid: string, props: { password?: string; emailVerified?: boolean }): Promise<void>;
+  generateEmailVerificationLink(email: string): Promise<string>;
+}
+
+/** 8–128 chars with a lower-case letter, an upper-case letter, and a digit. The value is never repeated in the error. */
+export function assertPartnerPassword(value: unknown): string {
+  const password = typeof value === 'string' ? value : '';
+  const strong = password.length >= 8 && password.length <= 128
+    && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password);
+  if (!strong) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Password must be 8 to 128 characters and include a lowercase letter, an uppercase letter, and a digit.',
+    );
+  }
+  return password;
 }
 
 const DEFAULT_PORTAL_ORIGIN = 'https://tranyx-admin-portal.web.app';
@@ -212,17 +227,26 @@ export async function upsertPortalPartner(input: {
   areaKeys: string[];
   status: string;
   now: number;
-  portalOrigin?: unknown;
-}): Promise<{ portalUid: string; created: boolean; passwordSetupLink: string }> {
+  password?: string;
+}): Promise<{ portalUid: string; created: boolean; emailVerified: boolean }> {
   const email = input.email.trim().toLowerCase();
   let created = false;
   let portalUid = '';
+  let emailVerified = false;
   try {
-    portalUid = (await input.portalAuth.getUserByEmail(email)).uid;
+    const existingUser = await input.portalAuth.getUserByEmail(email);
+    portalUid = existingUser.uid;
+    emailVerified = existingUser.emailVerified === true;
+    if (input.password) await input.portalAuth.updateUser(portalUid, { password: input.password });
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code !== 'auth/user-not-found') throw error;
-    portalUid = (await input.portalAuth.createUser({ email })).uid;
+    if (!input.password) {
+      throw new HttpsError('invalid-argument', 'A password is required to create the partner sign-in.');
+    }
+    const createdUser = await input.portalAuth.createUser({ email, password: input.password, emailVerified: false });
+    portalUid = createdUser.uid;
+    emailVerified = false;
     created = true;
   }
   const ref = input.portalDb.doc(`users/${portalUid}`);
@@ -235,50 +259,66 @@ export async function upsertPortalPartner(input: {
     areas: input.areas,
     areaKeys: input.areaKeys,
     status: input.status,
+    emailVerified,
     name: email.split('@')[0] || 'Partner',
     updatedAt: input.now,
     createdAt: existing.exists ? existing.get('createdAt') ?? input.now : input.now,
   }, { merge: true });
-  const raw = await input.portalAuth.generatePasswordResetLink(email);
-  return {
-    portalUid,
-    created,
-    passwordSetupLink: portalPasswordSetupLink(raw, allowedPortalOrigin(input.portalOrigin)),
-  };
+  return { portalUid, created, emailVerified };
 }
 
-async function issuePasswordSetupLink(input: {
+async function partnerByEmailOrId(db: Firestore, body: Doc) {
+  const email = str(body.email, 254).toLowerCase();
+  const partnerId = str(body.partnerId, 128);
+  const snap = partnerId
+    ? await db.doc(`partners/${partnerId}`).get()
+    : email.includes('@')
+      ? (await db.collection('partners').where('email', '==', email).limit(1).get()).docs[0]
+      : undefined;
+  if (!snap || !snap.exists) throw new HttpsError('not-found', 'Partner not found.');
+  const targetEmail = email.includes('@') ? email : str(snap.get('email'), 254).toLowerCase();
+  if (!targetEmail.includes('@')) throw new HttpsError('invalid-argument', 'A partner email is required.');
+  return { snap, email: targetEmail };
+}
+
+async function setPartnerPassword(input: {
   data: unknown;
   db: Firestore;
   portal?: { auth: PortalAuth; db: Firestore };
-}, actor: string, now: number) {
+}, now: number) {
   if (!input.portal) {
     throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
   }
   const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
-  const email = str(body.email, 254).toLowerCase();
-  let partnerId = str(body.partnerId, 128);
-  const snap = partnerId
-    ? await input.db.doc(`partners/${partnerId}`).get()
-    : email.includes('@')
-      ? (await input.db.collection('partners').where('email', '==', email).limit(1).get()).docs[0]
-      : undefined;
-  if (!snap || !snap.exists) throw new HttpsError('not-found', 'Partner not found.');
-  partnerId = snap.id;
-  const targetEmail = email.includes('@') ? email : str(snap.get('email'), 254).toLowerCase();
-  if (!targetEmail.includes('@')) throw new HttpsError('invalid-argument', 'A partner email is required.');
-  const portal = await upsertPortalPartner({
-    portalAuth: input.portal.auth,
-    portalDb: input.portal.db,
-    email: targetEmail,
-    partnerId,
-    areas: snap.get('areas') ?? [],
-    areaKeys: Array.isArray(snap.get('areaKeys')) ? snap.get('areaKeys') as string[] : [],
-    status: str(snap.get('status'), 20) || 'active',
-    now,
-    portalOrigin: body.portalOrigin,
-  });
-  return { ok: true, partnerId, email: targetEmail, actorUid: actor, ...portal };
+  const password = assertPartnerPassword(body.password);
+  const { snap, email } = await partnerByEmailOrId(input.db, body);
+  const portalUser = await input.portal.auth.getUserByEmail(email);
+  await input.portal.auth.updateUser(portalUser.uid, { password });
+  if (input.portal) {
+    await input.db.doc(`partners/${snap.id}`).set({ updatedAt: now }, { merge: true });
+  }
+  return { ok: true, partnerId: snap.id, email };
+}
+
+async function resendPartnerVerification(input: {
+  data: unknown;
+  db: Firestore;
+  portal?: { auth: PortalAuth; db: Firestore };
+}) {
+  if (!input.portal) {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
+  const { snap, email } = await partnerByEmailOrId(input.db, body);
+  const portalUser = await input.portal.auth.getUserByEmail(email);
+  const verificationLink = await input.portal.auth.generateEmailVerificationLink(email);
+  return {
+    ok: true,
+    partnerId: snap.id,
+    email,
+    emailVerified: portalUser.emailVerified === true,
+    verificationLink,
+  };
 }
 
 export async function partnerAdmin(input: {
@@ -297,8 +337,9 @@ export async function partnerAdmin(input: {
   const db = input.db;
 
   if (action === 'overview') return partnerOverview(db, now);
-  if (action === 'accounts') return partnerAccounts(db);
-  if (action === 'passwordSetupLink') return issuePasswordSetupLink(input, actor, now);
+  if (action === 'accounts') return partnerAccounts(db, input.portal?.auth);
+  if (action === 'setPartnerPassword') return setPartnerPassword(input, now);
+  if (action === 'resendVerification') return resendPartnerVerification(input);
   if (action === 'setRevenueConfig') {
     if (typeof body.includeSubscriptions !== 'boolean') {
       throw new HttpsError('invalid-argument', 'includeSubscriptions must be true or false.');
@@ -326,14 +367,16 @@ export async function partnerAdmin(input: {
     const targets = targetsOf(body.targets);
     const licenseFeePaid = round2(numOf(body.licenseFeePaid, 0));
     if (licenseFeePaid < 0) throw new HttpsError('invalid-argument', 'licenseFeePaid cannot be negative.');
+    const password = input.portal ? assertPartnerPassword(body.password) : '';
     let created = false;
     let user;
     try {
       user = await input.auth.getUserByEmail(email);
+      if (password && input.auth.updateUser) await input.auth.updateUser(user.uid, { password });
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code !== 'auth/user-not-found') throw error;
-      user = await input.auth.createUser({ email });
+      user = await input.auth.createUser(password ? { email, password } : { email });
       created = true;
     }
     const partnerId = user.uid;
@@ -361,10 +404,10 @@ export async function partnerAdmin(input: {
         areaKeys: areas.map((area) => area.areaKey),
         status: 'active',
         now,
-        portalOrigin: body.portalOrigin,
+        password,
       })
       : {};
-    return { ok: true, partnerId, email, created, status: 'active', renewalDate, ...portal };
+    return { ok: true, partnerId, email, created, status: 'active', renewalDate, emailVerified: false, ...portal };
   }
 
   const partnerId = str(body.partnerId, 128);
@@ -453,10 +496,17 @@ function partnerMfaState(token: Token) {
   return { mfaEnrolled: enrolled, mfaEnforced: enforced };
 }
 
-async function requirePartner(db: Firestore, uid: string | undefined, token: Token, now: number) {
+function requireVerifiedEmail(token: Token) {
+  if (token?.email_verified !== true) {
+    throw new HttpsError('failed-precondition', 'Verify your email before using the partner desk.', { code: 'EMAIL_NOT_VERIFIED' });
+  }
+}
+
+async function requirePartner(db: Firestore, uid: string | undefined, token: Token, now: number, allowUnverified = false) {
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to open the partner desk.');
   if (callerIsSuperAdmin(token)) return { uid, partnerId: '', super: true as const, profile: null as Doc | null, mfaEnrolled: true, mfaEnforced: false };
   if (token?.role !== 'partner') throw new HttpsError('permission-denied', 'Partner access required.');
+  if (!allowUnverified) requireVerifiedEmail(token);
   const mfa = partnerMfaState(token);
   const partnerId = str(token?.partnerId, 128);
   if (!partnerId || partnerId !== uid) throw new HttpsError('permission-denied', 'This partner token does not match the signed-in account.');
@@ -475,19 +525,27 @@ function covers(profile: Doc | null, areaKey: string, superAdmin: boolean) {
   return !!areaKey && keys.includes(areaKey);
 }
 
+const partnerMoneyActions = new Set(['dashboard', 'statement', 'statementCsv', 'overview']);
+
 export async function partnerDesk(input: {
   callerUid: string | undefined;
   callerToken: Token;
   data: unknown;
   db: Firestore;
   now?: number;
+  auth?: StaffAuth;
+  portal?: { auth: PortalAuth; db: Firestore };
 }): Promise<Doc> {
   const now = input.now ?? Date.now();
-  const gate = await requirePartner(input.db, input.callerUid, input.callerToken, now);
   const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
   const action = str(body.action, 40);
+  const gate = await requirePartner(input.db, input.callerUid, input.callerToken, now, action === 'syncEmailVerified');
   const db = input.db;
+  if (action === 'syncEmailVerified') return syncPartnerEmailVerified(input, gate.uid);
   const partnerId = gate.super ? str(body.partnerId, 128) : gate.partnerId;
+  if (!gate.super && partnerMoneyActions.has(action)) {
+    throw new HttpsError('permission-denied', 'Partners read their share from the revenue action.');
+  }
   if (action === 'overview') {
     if (!gate.super) throw new HttpsError('permission-denied', 'Only a super admin can overview partners.');
     return partnerOverview(db, now);
@@ -519,6 +577,7 @@ export async function partnerDesk(input: {
     if (action === 'statement') return statement;
     return { ...statement, csv: statementCsv(statement) };
   }
+  if (action === 'revenue') return partnerRevenue(db, partnerId, profile, gate.super);
   if (action === 'directory') return partnerDirectory(db, profile, gate.super, str(body.areaKey, 80), str(body.kind, 20));
   if (action === 'review') return partnerReview(db, gate, profile, body, now);
   throw new HttpsError('invalid-argument', 'Unknown partner desk action.');
@@ -543,24 +602,92 @@ async function maskedPeople(db: Firestore, ids: string[]) {
   return docs.filter((doc) => doc.exists).map((doc) => maskPerson(doc.data() as Doc, doc.id));
 }
 
-async function partnerAccounts(db: Firestore) {
-  const snap = await db.collection('partners').limit(200).get();
-  return {
-    partners: snap.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        partnerId: doc.id,
-        email: str(data.email, 254),
-        areas: data.areas ?? [],
-        areaKeys: data.areaKeys ?? [],
-        licenseStart: numOf(data.licenseStart),
-        termMonths: numOf(data.termMonths, 36),
-        renewalDate: numOf(data.renewalDate),
-        licenseFeePaid: numOf(data.licenseFeePaid),
+async function syncPartnerEmailVerified(input: {
+  callerToken: Token;
+  auth?: StaffAuth;
+  portal?: { auth: PortalAuth; db: Firestore };
+}, uid: string) {
+  if (!input.auth?.updateUser) {
+    throw new HttpsError('failed-precondition', 'Workspace verification sync is not configured.', { code: 'EMAIL_NOT_VERIFIED' });
+  }
+  if (!input.portal) {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  const email = str(input.callerToken?.email, 254).toLowerCase();
+  if (!email.includes('@')) throw new HttpsError('invalid-argument', 'A partner email is required.');
+  const portalUser = await input.portal.auth.getUserByEmail(email);
+  if (portalUser.emailVerified !== true) {
+    throw new HttpsError('failed-precondition', 'Verify your email before using the partner desk.', { code: 'EMAIL_NOT_VERIFIED' });
+  }
+  if (input.auth.updateUser) await input.auth.updateUser(uid, { emailVerified: true });
+  return { ok: true, emailVerified: true };
+}
+
+async function partnerRevenue(db: Firestore, partnerId: string, profile: Doc, superAdmin: boolean) {
+  const keys = new Set<string>((Array.isArray(profile.areaKeys) ? profile.areaKeys : []) as string[]);
+  const snap = await db.collection('area_revenue').where('partnerId', '==', partnerId).limit(1000).get();
+  let partnerShare = 0;
+  const lines = [];
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const areaKey = str(data.areaKey, 80);
+    if (!superAdmin && !keys.has(areaKey)) continue;
+    const share = round2(numOf(data.partnerShare));
+    partnerShare = round2(partnerShare + share);
+    if (superAdmin) {
+      lines.push({
+        entryId: doc.id,
+        period: data.period ?? '',
+        areaKey,
+        source: str(data.source, 40),
+        sourceId: str(data.sourceId, 128),
         status: str(data.status, 20),
-      };
-    }),
-  };
+        gross: numOf(data.gross),
+        platformRevenue: numOf(data.platformRevenue),
+        partnerShare: share,
+        tranyxShare: numOf(data.tranyxShare),
+      });
+    } else {
+      lines.push({
+        entryId: doc.id,
+        period: data.period ?? '',
+        areaKey,
+        source: str(data.source, 40),
+        status: str(data.status, 20),
+        partnerShare: share,
+      });
+    }
+  }
+  return { partnerId, partnerShare, lines };
+}
+
+async function partnerAccounts(db: Firestore, portalAuth?: PortalAuth) {
+  const snap = await db.collection('partners').limit(200).get();
+  const partners = await Promise.all(snap.docs.map(async (doc) => {
+    const data = doc.data();
+    const email = str(data.email, 254);
+    let emailVerified = false;
+    if (portalAuth && email.includes('@')) {
+      try {
+        emailVerified = (await portalAuth.getUserByEmail(email)).emailVerified === true;
+      } catch {
+        emailVerified = false;
+      }
+    }
+    return {
+      partnerId: doc.id,
+      email,
+      areas: data.areas ?? [],
+      areaKeys: data.areaKeys ?? [],
+      licenseStart: numOf(data.licenseStart),
+      termMonths: numOf(data.termMonths, 36),
+      renewalDate: numOf(data.renewalDate),
+      licenseFeePaid: numOf(data.licenseFeePaid),
+      status: str(data.status, 20),
+      emailVerified,
+    };
+  }));
+  return { partners };
 }
 
 async function partnerDirectory(db: Firestore, profile: Doc, superAdmin: boolean, areaKey: string, kind: string) {
@@ -773,7 +900,7 @@ export async function buildStatement(db: Firestore, partnerId: string, profile: 
   const payoutId = `${partnerId}_${period}`;
   const payoutSnap = await db.doc(`partner_payouts/${payoutId}`).get();
   const statement = {
-    partnerId, period, partnerShareBps: numOf(profile.partnerShareBps, 7000),
+    partnerId, period, partnerShareBps: numOf(profile.partnerShareBps, 3000),
     grossBookings: gross, platformRevenue: platform, partnerShare, tranyxShare, bySource, lines,
     payout: payoutSnap.exists ? { id: payoutId, ...payoutSnap.data() } : null,
     generatedAt: now,
@@ -937,7 +1064,7 @@ async function applyRevenue(db: Firestore, row: MoneyRow, now: number): Promise<
       const partner = pid ? await tx.get(db.doc(`partners/${pid}`)) : null;
       if (partner?.exists && partner.get('status') === 'active') {
         partnerId = pid;
-        bps = numOf(partner.get('partnerShareBps'), 7000);
+        bps = numOf(partner.get('partnerShareBps'), 3000);
       }
     }
     if (row.settled && !index.exists) {
@@ -978,7 +1105,7 @@ async function ensurePayout(db: Firestore, partnerId: string, profile: Doc, peri
   if (snap.exists && snap.get('status') !== 'pending') return;
   await ref.set({
     id, partnerId, period, amount: Math.max(0, amount), status: 'pending',
-    partnerShareBps: numOf(profile.partnerShareBps, 7000), updatedAt: now,
+    partnerShareBps: numOf(profile.partnerShareBps, 3000), updatedAt: now,
     createdAt: snap.exists ? snap.get('createdAt') ?? now : now,
   }, { merge: true });
 }
