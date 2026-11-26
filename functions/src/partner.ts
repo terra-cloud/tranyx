@@ -122,7 +122,7 @@ function targetsOf(input: unknown) {
 }
 
 function sharesOf(partnerShareBps: unknown) {
-  const partner = partnerShareBps == null ? 7000 : Math.floor(numOf(partnerShareBps, NaN));
+  const partner = partnerShareBps == null ? 3000 : Math.floor(numOf(partnerShareBps, NaN));
   if (!Number.isInteger(partner) || partner < 0 || partner > 10000) {
     throw new HttpsError('invalid-argument', 'partnerShareBps must be an integer from 0 to 10000.');
   }
@@ -900,7 +900,7 @@ export async function buildStatement(db: Firestore, partnerId: string, profile: 
   const payoutId = `${partnerId}_${period}`;
   const payoutSnap = await db.doc(`partner_payouts/${payoutId}`).get();
   const statement = {
-    partnerId, period, partnerShareBps: numOf(profile.partnerShareBps, 7000),
+    partnerId, period, partnerShareBps: numOf(profile.partnerShareBps, 3000),
     grossBookings: gross, platformRevenue: platform, partnerShare, tranyxShare, bySource, lines,
     payout: payoutSnap.exists ? { id: payoutId, ...payoutSnap.data() } : null,
     generatedAt: now,
@@ -1064,7 +1064,7 @@ async function applyRevenue(db: Firestore, row: MoneyRow, now: number): Promise<
       const partner = pid ? await tx.get(db.doc(`partners/${pid}`)) : null;
       if (partner?.exists && partner.get('status') === 'active') {
         partnerId = pid;
-        bps = numOf(partner.get('partnerShareBps'), 7000);
+        bps = numOf(partner.get('partnerShareBps'), 3000);
       }
     }
     if (row.settled && !index.exists) {
@@ -1105,7 +1105,7 @@ async function ensurePayout(db: Firestore, partnerId: string, profile: Doc, peri
   if (snap.exists && snap.get('status') !== 'pending') return;
   await ref.set({
     id, partnerId, period, amount: Math.max(0, amount), status: 'pending',
-    partnerShareBps: numOf(profile.partnerShareBps, 7000), updatedAt: now,
+    partnerShareBps: numOf(profile.partnerShareBps, 3000), updatedAt: now,
     createdAt: snap.exists ? snap.get('createdAt') ?? now : now,
   }, { merge: true });
 }

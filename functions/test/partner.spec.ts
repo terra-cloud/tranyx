@@ -227,8 +227,7 @@ describe('city partner license', () => {
   it('reverses settled area revenue and ignores subscriptions while the flag is off', async () => {
     await db.doc('area_assignments/calbayog').set({ active: true, partnerId: 'pCal', areaKey: 'calbayog', city: 'Calbayog' });
     await db.doc('partners/pCal').set({
-      uid: 'pCal', status: 'active', partnerShareBps: 7000, tranyxShareBps: 3000,
-      areaKeys: ['calbayog'], renewalDate: NOV + 86_400_000 * 400, licenseStart: OCT,
+      uid: 'pCal', status: 'active', areaKeys: ['calbayog'], renewalDate: NOV + 86_400_000 * 400, licenseStart: OCT,
       targets: { activeListings: 30, activeProviders: 30, byMonth: 6 },
     });
     await db.doc('rental_escrows/b1').set({
@@ -240,7 +239,7 @@ describe('city partner license', () => {
     const first = await attributePartnerRevenue(db, OCT);
     expect(first.settled).toBe(1);
     const entry = (await db.doc('area_revenue/vehicle_rental_b1').get()).data();
-    expect(entry).toMatchObject({ status: 'settled', platformRevenue: 60, partnerShare: 42, tranyxShare: 18, areaKey: 'calbayog', partnerId: 'pCal' });
+    expect(entry).toMatchObject({ status: 'settled', platformRevenue: 60, partnerShare: 18, tranyxShare: 42, areaKey: 'calbayog', partnerId: 'pCal' });
     expect((await db.doc('area_revenue/subscription_sub1').get()).exists).toBe(false);
     await db.doc('rental_escrows/b1').update({ status: 'Refunded' });
     const second = await attributePartnerRevenue(db, OCT + 86_400_000);
@@ -254,7 +253,7 @@ describe('city partner license', () => {
   it('lets only a super admin approve then mark a monthly payout paid', async () => {
     await db.doc('area_assignments/calbayog').set({ active: true, partnerId: 'pCal', areaKey: 'calbayog' });
     await db.doc('partners/pCal').set({
-      uid: 'pCal', status: 'active', partnerShareBps: 7000, areaKeys: ['calbayog'],
+      uid: 'pCal', status: 'active', areaKeys: ['calbayog'],
       renewalDate: NOV + 86_400_000 * 400, licenseStart: OCT, targets: { activeListings: 30, activeProviders: 30, byMonth: 6 },
     });
     await db.doc('rental_escrows/b1').set({
@@ -264,7 +263,7 @@ describe('city partner license', () => {
     await attributePartnerRevenue(db, NOV);
     const payoutId = 'pCal_2026-10';
     expect((await db.doc(`partner_payouts/${payoutId}`).get()).get('status')).toBe('pending');
-    expect((await db.doc(`partner_payouts/${payoutId}`).get()).get('amount')).toBe(42);
+    expect((await db.doc(`partner_payouts/${payoutId}`).get()).get('amount')).toBe(18);
     const token = { admin: false, role: 'partner', partnerId: 'pCal', firebase: { sign_in_second_factor: 'totp' } };
     await expect(partnerAdmin({
       callerUid: 'pCal', callerToken: token, auth, db, now: NOV,
@@ -285,12 +284,12 @@ describe('city partner license', () => {
       data: { action: 'statementCsv', period: '2026-10', partnerId: 'pCal' },
     });
     expect(statement.csv).toContain('vehicle_rental');
-    expect(statement.partnerShare).toBe(42);
+    expect(statement.partnerShare).toBe(18);
     const dash = await partnerDesk({
       callerUid: 'root', callerToken: superToken, db, now: NOV,
       data: { action: 'dashboard', partnerId: 'pCal' },
     });
-    expect(dash.earningsToDate).toBe(42);
+    expect(dash.earningsToDate).toBe(18);
     expect(dash.targets).toMatchObject({ activeListings: 30, activeProviders: 30, byMonth: 6 });
   });
 

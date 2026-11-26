@@ -30,7 +30,7 @@ Super admin only.
 
 | `action` | Body | Result |
 | --- | --- | --- |
-| `create` | `email`, `areas[]`, optional `licenseStart` (ms), `termMonths` (default 36), `licenseFeePaid` (default 0), `partnerShareBps` (default 7000), `targets` | Creates the Auth user if needed, sets the partner claim, writes `partners/{uid}` |
+| `create` | `email`, `areas[]`, optional `licenseStart` (ms), `termMonths` (default 36), `licenseFeePaid` (default 0), `partnerShareBps` (default 3000), `targets` | Creates the Auth user if needed, sets the partner claim, writes `partners/{uid}` |
 | `update` | `partnerId`, any of `areas`, `partnerShareBps`, `targets`, `licenseFeePaid`, `licenseStart`, `termMonths` | Recomputes `renewalDate` when the term or start changes. Relocks areas only while the license is active |
 | `suspend` | `partnerId` | `status: suspended`, area lock released |
 | `deactivate` | `partnerId` | `status: expired`, area lock released |
@@ -44,7 +44,7 @@ Super admin only.
 
 `targets` defaults to `{ activeListings: 30, activeProviders: 30, byMonth: 6 }`.
 
-`tranyxShareBps` is `10000 - partnerShareBps`.
+`partnerShareBps` defaults to 3000. The partner keeps 30% of platform revenue and Tranyx keeps 70%. `tranyxShareBps` is `10000 - partnerShareBps`.
 
 ### `partnerDesk`
 
