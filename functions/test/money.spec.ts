@@ -97,7 +97,7 @@ describe('vehicle booking', () => {
     const esc = (await db.doc(`rental_escrows/${r.requestId}`).get()).data()!;
     expect(esc).toMatchObject({ status: 'Held', amount: 3000, totalPaid: 3090, renteeId: 'renter', hostId: 'host' });
     const req = (await db.doc(`rental_requests/${r.requestId}`).get()).data()!;
-    expect(req).toMatchObject({ totalCost: 3000, bookingFee: 90, status: 'Pending', renteeId: 'renter', brand: 'Toyota' });
+    expect(req).toMatchObject({ totalCost: 3000, bookingFee: 90, status: 'Pending', renteeId: 'renter', brand: 'Toyota', durationType: 'Daily', multiplier: 3 });
   });
   it('is idempotent, blocks own listing, insufficient funds, unavailable listing', async () => {
     const k = key();
