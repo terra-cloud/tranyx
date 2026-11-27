@@ -21,7 +21,7 @@ import { jobAction as runJobAction } from './jobs';
 import { staffClaimsOnly, staffOps as runStaffOps } from './staff_ops';
 import { syncStaffAccess as runSyncStaffAccess } from './staff_access';
 import { attributePartnerRevenue as runAttributePartnerRevenue, partnerAdmin as runPartnerAdmin, partnerDesk as runPartnerDesk } from './partner';
-import { awardPoints as runAwardPoints } from './points';
+import { awardPoints as runAwardPoints, staffAwardPoints as runStaffAwardPoints } from './points';
 import type { MoneyDeps } from './money';
 
 initializeApp();
@@ -368,6 +368,29 @@ export const syncStaffAccess = onCall(
       if (e instanceof HttpsError) throw e;
       logger.error('syncStaffAccess failed', { detail: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
       throw new HttpsError('internal', 'Staff access could not be synced.');
+    }
+  },
+);
+
+/**
+ * Admin grant of quest points. Named amounts come from the server quest table.
+ * App Check follows the same enforceAppCheck flag as syncStaffAccess.
+ * points_history remains closed to client writes.
+ */
+export const staffAwardPoints = onCall(
+  { region: 'us-central1', enforceAppCheck: ENFORCE_APP_CHECK, timeoutSeconds: 30, maxInstances: 10 },
+  async (req) => {
+    try {
+      return await runStaffAwardPoints({
+        callerUid: req.auth?.uid,
+        callerToken: req.auth?.token as Record<string, unknown> | undefined,
+        data: req.data,
+        db: getFirestore(),
+      });
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      logger.error('staffAwardPoints failed', { detail: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
+      throw new HttpsError('internal', 'Points could not be awarded.');
     }
   },
 );
