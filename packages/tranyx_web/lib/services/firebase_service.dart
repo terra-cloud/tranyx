@@ -10,6 +10,7 @@ import 'package:meta/meta.dart';
 
 import 'package:shared/shared.dart';
 import '../client/utils/listing_privacy.dart';
+import 'booking_approval_snapshot.dart';
 import 'tranyx_firebase_ai.dart';
 import 'web_interop.dart';
 
@@ -2939,10 +2940,11 @@ class FirestoreService {
       }
     }
 
-    final renteeId = reqDoc['renteeId'] as String;
-    final renteeName = reqDoc['renteeName'] as String;
-    final durationType = reqDoc['durationType'] as String;
-    final multiplier = (reqDoc['multiplier'] as num).toInt();
+    final party = BookingApprovalSnapshot.fromRequest(reqDoc);
+    final renteeId = party.renteeId;
+    final renteeName = party.renteeName;
+    final durationType = party.durationType;
+    final multiplier = party.multiplier;
     final totalCost = (reqDoc['totalCost'] as num).toDouble();
     final hireWithDriver = reqDoc['hireWithDriver'] as bool? ?? false;
     final rentalType = reqDoc['rentalType'] as String? ?? 'pickup';
@@ -4383,10 +4385,11 @@ class FirestoreService {
       }
     }
 
-    final renteeId = reqDoc['renteeId'] as String;
-    final renteeName = reqDoc['renteeName'] as String;
-    final durationType = reqDoc['durationType'] as String;
-    final multiplier = (reqDoc['multiplier'] as num).toInt();
+    final party = BookingApprovalSnapshot.fromRequest(reqDoc);
+    final renteeId = party.renteeId;
+    final renteeName = party.renteeName;
+    final durationType = party.durationType;
+    final multiplier = party.multiplier;
     final totalPaid = (reqDoc['totalCustomerPaid'] as num?)?.toDouble() ?? (reqDoc['totalCost'] as num).toDouble();
     final baseRent = (reqDoc['baseRentAmount'] as num?)?.toDouble() ?? totalPaid;
     final secDeposit = (reqDoc['securityDepositAmount'] as num?)?.toDouble() ?? 0.0;

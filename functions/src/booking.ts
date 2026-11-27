@@ -155,9 +155,13 @@ export async function bookingRequest(deps: MoneyDeps, auth: CallerAuth | undefin
     const existing = await tx.get(escrow);
     if (existing.exists) throw new HttpsError('already-exists', 'This request was already submitted.');
 
+    const copied = clientFields(d.request);
     const requestDoc: Doc = {
-      ...clientFields(d.request),
+      ...copied,
       ...extra,
+      durationType: str(d.durationType, 40) || str(copied.durationType, 40) || 'daily',
+      multiplier: qty,
+      renteeName: str(copied.renteeName, 120) || str(copied.renterName, 120) || 'Renter',
       id: requestId,
       [c.idField]: listingId,
       renteeId: uid,
