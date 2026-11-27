@@ -158,3 +158,120 @@ export async function awardPoints(deps: MoneyDeps, auth: CallerAuth | undefined,
     return { awarded: true, alreadyAwarded: false, questId, points: quest.points, terraPoints: next };
   });
 }
+
+const AWARD_ADMIN_ROLES = new Set(['admin', 'superadmin', 'super_admin']);
+/** Custom bonuses are staff-entered. Named quests never use this cap; their amount is QUESTS. */
+export const CUSTOM_POINTS_CAP = 1000;
+const UID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const CUSTOM_QUEST_RE = /^custom_[A-Za-z0-9]{1,40}$/;
+
+/**
+ * Admin / superadmin token only. Same claim shapes syncStaffAccess accepts:
+ * `admin: true`, `superadmin: true`, or role `admin` | `superadmin` | `super_admin`.
+ * A staff, agent, or unsigned token cannot award points.
+ */
+export function callerMayAwardPoints(token: Record<string, unknown> | undefined): boolean {
+  if (!token) return false;
+  if (token.admin === true || token.superadmin === true) return true;
+  const role = typeof token.role === 'string' ? token.role.trim().toLowerCase() : '';
+  return AWARD_ADMIN_ROLES.has(role);
+}
+
+function customPoints(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > CUSTOM_POINTS_CAP) {
+    throw new HttpsError('invalid-argument', `Custom points must be an integer from 1 to ${CUSTOM_POINTS_CAP}.`);
+  }
+  return value;
+}
+
+/**
+ * Staff grant of quest points. Writes happen in one Admin SDK transaction.
+ * `points_history` stays client-unwritable in the rules; this function is the only writer.
+ * A named quest's amount, title, and category come from QUESTS. A `custom_*` quest requires
+ * a reason and a positive integer amount at or under CUSTOM_POINTS_CAP.
+ */
+export async function staffAwardPoints(input: {
+  callerUid: string | undefined;
+  callerToken: Record<string, unknown> | undefined;
+  data: unknown;
+  db: Firestore;
+  now?: number;
+}): Promise<{
+  targetUid: string;
+  questId: string;
+  points: number;
+  title: string;
+  category: string;
+  terraPoints: number;
+  historyId: string;
+}> {
+  if (!input.callerUid) throw new HttpsError('unauthenticated', 'Sign in to award points.');
+  if (!callerMayAwardPoints(input.callerToken)) {
+    throw new HttpsError('permission-denied', 'Only an admin can award points.');
+  }
+  if (!input.data || typeof input.data !== 'object' || Array.isArray(input.data)) {
+    throw new HttpsError('invalid-argument', 'Body must be an object.');
+  }
+  const body = input.data as Record<string, unknown>;
+  const targetUid = typeof body.targetUid === 'string' ? body.targetUid.trim() : '';
+  if (!UID_RE.test(targetUid)) throw new HttpsError('invalid-argument', 'targetUid is invalid.');
+  const questId = typeof body.questId === 'string' ? body.questId.trim() : '';
+  const named = QUESTS[questId];
+  let points: number;
+  let title: string;
+  let category: string;
+  let reason: string | null = null;
+  if (named) {
+    if (body.points !== undefined || body.amount !== undefined) {
+      throw new HttpsError('invalid-argument', 'Named quest points come from the server table.');
+    }
+    points = named.points;
+    title = named.title;
+    category = named.category;
+  } else if (CUSTOM_QUEST_RE.test(questId)) {
+    points = customPoints(body.points);
+    reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (!reason || reason.length > 200) {
+      throw new HttpsError('invalid-argument', 'A custom award needs a reason of 1 to 200 characters.');
+    }
+    title = reason;
+    category = 'Custom';
+  } else {
+    throw new HttpsError('invalid-argument', 'Unknown quest.');
+  }
+
+  const now = input.now ?? Date.now();
+  const { db } = input;
+  const userRef = db.doc(`users/${targetUid}`);
+  const historyRef = db.collection('points_history').doc();
+  const awardedBy = input.callerUid;
+
+  return db.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) throw new HttpsError('not-found', 'User not found.');
+    const balance = numOf(userSnap.get('terraPoints'));
+    tx.update(userRef, {
+      terraPoints: FieldValue.increment(points),
+      earnedRewards: FieldValue.arrayUnion(questId),
+    });
+    tx.create(historyRef, {
+      uid: targetUid,
+      questId,
+      points,
+      title,
+      category,
+      createdAt: now,
+      awardedBy,
+      ...(reason ? { reason } : {}),
+    });
+    return {
+      targetUid,
+      questId,
+      points,
+      title,
+      category,
+      terraPoints: balance + points,
+      historyId: historyRef.id,
+    };
+  });
+}
