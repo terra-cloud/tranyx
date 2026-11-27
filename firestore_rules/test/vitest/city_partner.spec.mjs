@@ -31,6 +31,11 @@ describe('city partner area isolation', () => {
       'tickets/tag': { areaKey: 'tagbilaran', userId: 'r2', status: 'Open' },
       'users/r1': { uid: 'r1', name: 'Maria Santos', email: 'maria@example.com', areaKey: 'calbayog' },
       'settings/platform_fees': { listingFeeRate: 0 },
+      'system_config/settings': { claimTimeoutSeconds: 180 },
+      'withdrawal_requests/w1': { uid: 'r1', amount: 500, status: 'WAITING_FOR_AGENT' },
+      'partner_payouts/other_2026-10': { partnerId: 'other', amount: 42, status: 'pending' },
+      'area_revenue/own': { partnerId: 'pCal', areaKey: 'calbayog', partnerShare: 70, tranyxShare: 30, platformRevenue: 100, gross: 1000 },
+      'partner_statements/pCal_2026-10': { partnerId: 'pCal', partnerShare: 70, tranyxShare: 30, grossBookings: 1000 },
       'rentals/cal/private/location': { address: '12 Real St, Calbayog' },
     });
     const cal = partner('pCal', 'pCal');
@@ -46,12 +51,29 @@ describe('city partner area isolation', () => {
     await assertFails(getDoc(doc(cal, 'tickets/tag')));
     await assertFails(getDoc(doc(cal, 'users/r1')));
     await assertFails(getDoc(doc(cal, 'settings/platform_fees')));
+    await assertFails(getDoc(doc(cal, 'system_config/settings')));
+    await assertFails(getDoc(doc(cal, 'withdrawal_requests/w1')));
+    await assertFails(getDoc(doc(cal, 'partner_payouts/other_2026-10')));
+    await assertFails(getDoc(doc(cal, 'area_revenue/own')));
+    await assertFails(getDoc(doc(cal, 'partner_statements/pCal_2026-10')));
     await assertFails(getDoc(doc(cal, 'rentals/cal/private/location')));
     await assertFails(updateDoc(doc(cal, 'users/r1'), { suspendedUntil: Date.now() + 86_400_000, banned: true }));
     await assertSucceeds(getDoc(doc(user('guest'), 'rentals/tag')));
     await assertSucceeds(getDocs(collection(user('guest'), 'rentals')));
     await assertSucceeds(getDoc(doc(adminClaim(), 'rentals/tag')));
     await assertSucceeds(getDoc(doc(user('guest'), 'settings/platform_fees')));
+  });
+
+  it('rejects a partner whose email is not verified', async () => {
+    await seed({
+      'partners/pCal': { uid: 'pCal', status: 'active', areaKeys: ['calbayog'], renewalDate: renewal },
+      'rentals/cal': { areaKey: 'calbayog', hostId: 'h1', status: 'Available' },
+    });
+    const unverified = env.authenticatedContext('pCal', {
+      email: 'pcal@gmail.com', email_verified: false, admin: false, role: 'partner', partnerId: 'pCal',
+      firebase: { sign_in_second_factor: 'totp' },
+    }).firestore();
+    await assertFails(getDoc(doc(unverified, 'rentals/cal')));
   });
 
   it('rejects a partner token that has not completed a second factor', async () => {

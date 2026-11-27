@@ -4,6 +4,12 @@ Backend contract for the admin panel. The panel calls these Cloud Functions and 
 
 Self-serve signup, online license-fee payment, and partner-run promotions are out of scope. Partners cannot suspend users.
 
+Phase 1 of the admin desk uses `partnerAdmin` `accounts`, `create`, `update`, `suspend`, `deactivate`, and `reinstate`, plus `partnerDesk` `profile` and `directory`. Directory `kind` is `hosts`, `renters`, `rentals`, `properties`, `providers`, `gigs`, `services`, `bookings`, or `tickets`. Those rows omit phone, email, wallet, plate, and street address. `review` is still only `approved`, `verified`, or `flagged` on a listing or provider, and it writes `partner_audit_log`. Revenue, statements, payouts, and the KPI `dashboard` stay on the server for a later phase and are not part of the phase 1 screen.
+
+`ENFORCE_PARTNER_MFA` defaults off, so a partner can open the desk before Identity Platform MFA is enrolled. Set it to `true` after TOTP or phone enrollment; the callable then returns `failed-precondition` / `MFA_REQUIRED`. Firestore rules still require `firebase.sign_in_second_factor` of `totp` or `phone` before a partner token can read an area document directly.
+
+`create` requires a password only for the admin-portal Auth user (`emailVerified: false`). It upserts `users/{portalUid}` with `role: partner` and never stores or returns the password. `setPartnerPassword` replaces that password. `resendVerification` returns a verification link for the portal's existing mail sender. `partnerDesk` rejects a partner token with `email_verified` not true, except `syncEmailVerified`, which copies a verified portal user onto the workspace user. `revenue` for a partner returns only that partner's `partnerShare` inside their areas. It omits gross, platform revenue, and the Tranyx share. Super admins still receive the full line. Partners cannot read `area_revenue` or `partner_statements` directly.
+
 ## Who can call what
 
 Super admin means an ID token with the admin claim `admin: true` and role `admin`, `superadmin`, or `super_admin` (or `superadmin: true`). That is the same top account `syncStaffAccess` provisions as admin. A staff, agent, or partner token is rejected.
@@ -24,7 +30,7 @@ Super admin only.
 
 | `action` | Body | Result |
 | --- | --- | --- |
-| `create` | `email`, `areas[]`, optional `licenseStart` (ms), `termMonths` (default 36), `licenseFeePaid` (default 0), `partnerShareBps` (default 7000), `targets` | Creates the Auth user if needed, sets the partner claim, writes `partners/{uid}` |
+| `create` | `email`, `areas[]`, optional `licenseStart` (ms), `termMonths` (default 36), `licenseFeePaid` (default 0), `partnerShareBps` (default 3000), `targets` | Creates the Auth user if needed, sets the partner claim, writes `partners/{uid}` |
 | `update` | `partnerId`, any of `areas`, `partnerShareBps`, `targets`, `licenseFeePaid`, `licenseStart`, `termMonths` | Recomputes `renewalDate` when the term or start changes. Relocks areas only while the license is active |
 | `suspend` | `partnerId` | `status: suspended`, area lock released |
 | `deactivate` | `partnerId` | `status: expired`, area lock released |
@@ -38,18 +44,20 @@ Super admin only.
 
 `targets` defaults to `{ activeListings: 30, activeProviders: 30, byMonth: 6 }`.
 
-`tranyxShareBps` is `10000 - partnerShareBps`.
+`partnerShareBps` defaults to 3000. The partner keeps 30% of platform revenue and Tranyx keeps 70%. `tranyxShareBps` is `10000 - partnerShareBps`.
 
 ### `partnerDesk`
 
-A partner must present Identity Platform MFA: `firebase.sign_in_second_factor` of `totp` or `phone`. Without it the callable returns `failed-precondition` / `MFA_REQUIRED` and Firestore rules deny the partner token. This repo cannot enroll the factor. Turn on Identity Platform MFA for the workspace project and enroll each partner (TOTP or phone) in the Firebase console before they sign in. A super admin may call `dashboard`, `statement`, `statementCsv`, and `directory` by passing `partnerId` and does not need that factor. `overview` is super-admin only.
+Firestore rules deny a partner token that has no `firebase.sign_in_second_factor` of `totp` or `phone`. The callable enforces that only when `ENFORCE_PARTNER_MFA=true`. This repo cannot enroll the factor. A super admin may call `profile`, `dashboard`, `statement`, `statementCsv`, and `directory` by passing `partnerId` and does not need that factor. `overview` is super-admin only.
 
 | `action` | Body | Result |
 | --- | --- | --- |
 | `dashboard` | optional `partnerId` for a super admin | KPIs below |
 | `statement` | `period` `YYYY-MM` (default: current Asia/Manila month), optional `partnerId` | Statement JSON. PDF is rendered by the client from this payload |
 | `statementCsv` | same | The statement plus a `csv` string |
-| `directory` | `areaKey`, `kind` `users` \| `rentals` \| `properties` \| `jobs` | Masked rows. Another area returns `permission-denied` / `OUTSIDE_AREA` |
+| `profile` | optional `partnerId` for a super admin | License, areas, and whether MFA is enrolled or enforced. No earnings |
+| `accounts` is on `partnerAdmin` | none | Partner rows without KPIs, payouts, or alerts |
+| `directory` | `areaKey`, `kind` `hosts` \| `renters` \| `rentals` \| `properties` \| `providers` \| `gigs` \| `services` \| `bookings` \| `tickets` (also `users` and `jobs`) | Masked rows. Another area returns `permission-denied` / `OUTSIDE_AREA` |
 | `review` | `kind` `rental` \| `property` \| `job` \| `provider`, `id`, `decision` `approved` \| `verified` \| `flagged`, `reason` required for `flagged` | Writes `partnerReview` on that document and an audit row. `suspended` is rejected |
 | `overview` | none | Same payload as `partnerAdmin` overview |
 

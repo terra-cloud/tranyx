@@ -86,8 +86,12 @@
       return get(/databases/$(database)/documents/partners/$(request.auth.token.partnerId)).data;
     }
 
+    function partnerEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
     function isActivePartner() {
-      return isPartnerToken() && partnerMfaOk() &&
+      return isPartnerToken() && partnerMfaOk() && partnerEmailVerified() &&
         exists(/databases/$(database)/documents/partners/$(request.auth.token.partnerId)) &&
         partnerRecord().get('status', '') == 'active' &&
         partnerRecord().get('uid', '') == request.auth.uid &&

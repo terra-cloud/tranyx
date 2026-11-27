@@ -122,7 +122,7 @@ function targetsOf(input: unknown) {
 }
 
 function sharesOf(partnerShareBps: unknown) {
-  const partner = partnerShareBps == null ? 7000 : Math.floor(numOf(partnerShareBps, NaN));
+  const partner = partnerShareBps == null ? 3000 : Math.floor(numOf(partnerShareBps, NaN));
   if (!Number.isInteger(partner) || partner < 0 || partner > 10000) {
     throw new HttpsError('invalid-argument', 'partnerShareBps must be an integer from 0 to 10000.');
   }
@@ -168,6 +168,159 @@ async function lockAreas(tx: Transaction, db: Firestore, partnerId: string, area
   }
 }
 
+export interface PortalAuth {
+  getUserByEmail(email: string): Promise<{ uid: string; emailVerified?: boolean }>;
+  createUser(props: { email: string; password: string; emailVerified: boolean }): Promise<{ uid: string; emailVerified?: boolean }>;
+  updateUser(uid: string, props: { password?: string; emailVerified?: boolean }): Promise<void>;
+  generateEmailVerificationLink(email: string): Promise<string>;
+}
+
+/** 8–128 chars with a lower-case letter, an upper-case letter, and a digit. The value is never repeated in the error. */
+export function assertPartnerPassword(value: unknown): string {
+  const password = typeof value === 'string' ? value : '';
+  const strong = password.length >= 8 && password.length <= 128
+    && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password);
+  if (!strong) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Password must be 8 to 128 characters and include a lowercase letter, an uppercase letter, and a digit.',
+    );
+  }
+  return password;
+}
+
+const DEFAULT_PORTAL_ORIGIN = 'https://tranyx-admin-portal.web.app';
+
+/** Only the admin portal's own hosting origins. A caller cannot point the setup link at another site. */
+export function allowedPortalOrigin(value: unknown): string {
+  const raw = str(value, 200);
+  if (!raw) return DEFAULT_PORTAL_ORIGIN;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname;
+    const preview = host.startsWith('tranyx-admin-portal--') && host.endsWith('.web.app');
+    const ok = url.protocol === 'https:' && (
+      host === 'tranyx-admin-portal.web.app' ||
+      host === 'tranyx-admin-portal.firebaseapp.com' ||
+      preview
+    );
+    return ok ? `${url.protocol}//${url.host}` : DEFAULT_PORTAL_ORIGIN;
+  } catch {
+    return DEFAULT_PORTAL_ORIGIN;
+  }
+}
+
+/** Moves the Firebase oob code onto the portal sign-in page. The link is not a password. */
+export function portalPasswordSetupLink(rawLink: string, origin: string): string {
+  const code = new URL(rawLink).searchParams.get('oobCode');
+  if (!code) throw new HttpsError('internal', 'Password setup link was not issued.');
+  return `${origin}/?mode=resetPassword&oobCode=${encodeURIComponent(code)}`;
+}
+
+/** Creates the admin-portal Auth user if needed and sets users/{uid}.role to partner. Never writes a password. */
+export async function upsertPortalPartner(input: {
+  portalAuth: PortalAuth;
+  portalDb: Firestore;
+  email: string;
+  partnerId: string;
+  areas: unknown;
+  areaKeys: string[];
+  status: string;
+  now: number;
+  password?: string;
+}): Promise<{ portalUid: string; created: boolean; emailVerified: boolean }> {
+  const email = input.email.trim().toLowerCase();
+  let created = false;
+  let portalUid = '';
+  let emailVerified = false;
+  try {
+    const existingUser = await input.portalAuth.getUserByEmail(email);
+    portalUid = existingUser.uid;
+    emailVerified = existingUser.emailVerified === true;
+    if (input.password) await input.portalAuth.updateUser(portalUid, { password: input.password });
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code !== 'auth/user-not-found') throw error;
+    if (!input.password) {
+      throw new HttpsError('invalid-argument', 'A password is required to create the partner sign-in.');
+    }
+    const createdUser = await input.portalAuth.createUser({ email, password: input.password, emailVerified: false });
+    portalUid = createdUser.uid;
+    emailVerified = false;
+    created = true;
+  }
+  const ref = input.portalDb.doc(`users/${portalUid}`);
+  const existing = await ref.get();
+  await ref.set({
+    uid: portalUid,
+    email,
+    role: 'partner',
+    partnerId: input.partnerId,
+    areas: input.areas,
+    areaKeys: input.areaKeys,
+    status: input.status,
+    emailVerified,
+    name: email.split('@')[0] || 'Partner',
+    updatedAt: input.now,
+    createdAt: existing.exists ? existing.get('createdAt') ?? input.now : input.now,
+  }, { merge: true });
+  return { portalUid, created, emailVerified };
+}
+
+async function partnerByEmailOrId(db: Firestore, body: Doc) {
+  const email = str(body.email, 254).toLowerCase();
+  const partnerId = str(body.partnerId, 128);
+  const snap = partnerId
+    ? await db.doc(`partners/${partnerId}`).get()
+    : email.includes('@')
+      ? (await db.collection('partners').where('email', '==', email).limit(1).get()).docs[0]
+      : undefined;
+  if (!snap || !snap.exists) throw new HttpsError('not-found', 'Partner not found.');
+  const targetEmail = email.includes('@') ? email : str(snap.get('email'), 254).toLowerCase();
+  if (!targetEmail.includes('@')) throw new HttpsError('invalid-argument', 'A partner email is required.');
+  return { snap, email: targetEmail };
+}
+
+async function setPartnerPassword(input: {
+  data: unknown;
+  db: Firestore;
+  portal?: { auth: PortalAuth; db: Firestore };
+}, now: number) {
+  if (!input.portal) {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
+  const password = assertPartnerPassword(body.password);
+  const { snap, email } = await partnerByEmailOrId(input.db, body);
+  const portalUser = await input.portal.auth.getUserByEmail(email);
+  await input.portal.auth.updateUser(portalUser.uid, { password });
+  if (input.portal) {
+    await input.db.doc(`partners/${snap.id}`).set({ updatedAt: now }, { merge: true });
+  }
+  return { ok: true, partnerId: snap.id, email };
+}
+
+async function resendPartnerVerification(input: {
+  data: unknown;
+  db: Firestore;
+  portal?: { auth: PortalAuth; db: Firestore };
+}) {
+  if (!input.portal) {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
+  const { snap, email } = await partnerByEmailOrId(input.db, body);
+  const portalUser = await input.portal.auth.getUserByEmail(email);
+  const verificationLink = await input.portal.auth.generateEmailVerificationLink(email);
+  return {
+    ok: true,
+    partnerId: snap.id,
+    email,
+    emailVerified: portalUser.emailVerified === true,
+    verificationLink,
+  };
+}
+
 export async function partnerAdmin(input: {
   callerUid: string | undefined;
   callerToken: Token;
@@ -175,6 +328,7 @@ export async function partnerAdmin(input: {
   auth: StaffAuth;
   db: Firestore;
   now?: number;
+  portal?: { auth: PortalAuth; db: Firestore };
 }): Promise<Doc> {
   const actor = requireSuper(input.callerUid, input.callerToken);
   const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
@@ -183,6 +337,9 @@ export async function partnerAdmin(input: {
   const db = input.db;
 
   if (action === 'overview') return partnerOverview(db, now);
+  if (action === 'accounts') return partnerAccounts(db, input.portal?.auth);
+  if (action === 'setPartnerPassword') return setPartnerPassword(input, now);
+  if (action === 'resendVerification') return resendPartnerVerification(input);
   if (action === 'setRevenueConfig') {
     if (typeof body.includeSubscriptions !== 'boolean') {
       throw new HttpsError('invalid-argument', 'includeSubscriptions must be true or false.');
@@ -210,14 +367,16 @@ export async function partnerAdmin(input: {
     const targets = targetsOf(body.targets);
     const licenseFeePaid = round2(numOf(body.licenseFeePaid, 0));
     if (licenseFeePaid < 0) throw new HttpsError('invalid-argument', 'licenseFeePaid cannot be negative.');
+    const password = input.portal ? assertPartnerPassword(body.password) : '';
     let created = false;
     let user;
     try {
       user = await input.auth.getUserByEmail(email);
+      if (password && input.auth.updateUser) await input.auth.updateUser(user.uid, { password });
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code !== 'auth/user-not-found') throw error;
-      user = await input.auth.createUser({ email });
+      user = await input.auth.createUser(password ? { email, password } : { email });
       created = true;
     }
     const partnerId = user.uid;
@@ -235,7 +394,20 @@ export async function partnerAdmin(input: {
       audit(tx, db, 'create', partnerId, now, { actorUid: actor, email, areaKeys: profile.areaKeys, created });
     });
     await input.auth.setCustomUserClaims(partnerId, { admin: false, role: 'partner', partnerId });
-    return { ok: true, partnerId, email, created, status: 'active', renewalDate };
+    const portal = input.portal
+      ? await upsertPortalPartner({
+        portalAuth: input.portal.auth,
+        portalDb: input.portal.db,
+        email,
+        partnerId,
+        areas,
+        areaKeys: areas.map((area) => area.areaKey),
+        status: 'active',
+        now,
+        password,
+      })
+      : {};
+    return { ok: true, partnerId, email, created, status: 'active', renewalDate, emailVerified: false, ...portal };
   }
 
   const partnerId = str(body.partnerId, 128);
@@ -315,13 +487,27 @@ async function settlePayout(db: Firestore, actor: string, action: 'approvePayout
   return { ok: true, payoutId, status: next };
 }
 
-async function requirePartner(db: Firestore, uid: string | undefined, token: Token, now: number) {
-  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to open the partner desk.');
-  if (callerIsSuperAdmin(token)) return { uid, partnerId: '', super: true as const, profile: null as Doc | null };
-  if (token?.role !== 'partner') throw new HttpsError('permission-denied', 'Partner access required.');
-  if (!partnerMfaFactor(token)) {
+function partnerMfaState(token: Token) {
+  const enrolled = partnerMfaFactor(token) !== '';
+  const enforced = process.env.ENFORCE_PARTNER_MFA === 'true';
+  if (enforced && !enrolled) {
     throw new HttpsError('failed-precondition', 'Partner sign-in requires a second factor.', { code: 'MFA_REQUIRED' });
   }
+  return { mfaEnrolled: enrolled, mfaEnforced: enforced };
+}
+
+function requireVerifiedEmail(token: Token) {
+  if (token?.email_verified !== true) {
+    throw new HttpsError('failed-precondition', 'Verify your email before using the partner desk.', { code: 'EMAIL_NOT_VERIFIED' });
+  }
+}
+
+async function requirePartner(db: Firestore, uid: string | undefined, token: Token, now: number, allowUnverified = false) {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to open the partner desk.');
+  if (callerIsSuperAdmin(token)) return { uid, partnerId: '', super: true as const, profile: null as Doc | null, mfaEnrolled: true, mfaEnforced: false };
+  if (token?.role !== 'partner') throw new HttpsError('permission-denied', 'Partner access required.');
+  if (!allowUnverified) requireVerifiedEmail(token);
+  const mfa = partnerMfaState(token);
   const partnerId = str(token?.partnerId, 128);
   if (!partnerId || partnerId !== uid) throw new HttpsError('permission-denied', 'This partner token does not match the signed-in account.');
   const snap = await db.doc(`partners/${partnerId}`).get();
@@ -330,7 +516,7 @@ async function requirePartner(db: Firestore, uid: string | undefined, token: Tok
   if (profile.status !== 'active' || numOf(profile.renewalDate) <= now) {
     throw new HttpsError('failed-precondition', 'This partner license is not active.', { code: 'LICENSE_INACTIVE' });
   }
-  return { uid, partnerId, super: false as const, profile };
+  return { uid, partnerId, super: false as const, profile, ...mfa };
 }
 
 function covers(profile: Doc | null, areaKey: string, superAdmin: boolean) {
@@ -339,19 +525,27 @@ function covers(profile: Doc | null, areaKey: string, superAdmin: boolean) {
   return !!areaKey && keys.includes(areaKey);
 }
 
+const partnerMoneyActions = new Set(['dashboard', 'statement', 'statementCsv', 'overview']);
+
 export async function partnerDesk(input: {
   callerUid: string | undefined;
   callerToken: Token;
   data: unknown;
   db: Firestore;
   now?: number;
+  auth?: StaffAuth;
+  portal?: { auth: PortalAuth; db: Firestore };
 }): Promise<Doc> {
   const now = input.now ?? Date.now();
-  const gate = await requirePartner(input.db, input.callerUid, input.callerToken, now);
   const body = (input.data && typeof input.data === 'object' ? input.data : {}) as Doc;
   const action = str(body.action, 40);
+  const gate = await requirePartner(input.db, input.callerUid, input.callerToken, now, action === 'syncEmailVerified');
   const db = input.db;
+  if (action === 'syncEmailVerified') return syncPartnerEmailVerified(input, gate.uid);
   const partnerId = gate.super ? str(body.partnerId, 128) : gate.partnerId;
+  if (!gate.super && partnerMoneyActions.has(action)) {
+    throw new HttpsError('permission-denied', 'Partners read their share from the revenue action.');
+  }
   if (action === 'overview') {
     if (!gate.super) throw new HttpsError('permission-denied', 'Only a super admin can overview partners.');
     return partnerOverview(db, now);
@@ -360,6 +554,21 @@ export async function partnerDesk(input: {
   const profileSnap = gate.profile ? null : await db.doc(`partners/${partnerId}`).get();
   const profile = gate.profile ?? (profileSnap?.data() as Doc | undefined);
   if (!profile) throw new HttpsError('not-found', 'Partner not found.');
+  if (action === 'profile') {
+    return {
+      partnerId,
+      email: str(profile.email, 254),
+      areas: profile.areas ?? [],
+      areaKeys: profile.areaKeys ?? [],
+      status: profile.status,
+      licenseStart: numOf(profile.licenseStart),
+      termMonths: numOf(profile.termMonths, 36),
+      renewalDate: numOf(profile.renewalDate),
+      licenseFeePaid: numOf(profile.licenseFeePaid),
+      mfaEnrolled: gate.mfaEnrolled,
+      mfaEnforced: gate.mfaEnforced,
+    };
+  }
   if (action === 'dashboard') return partnerDashboard(db, partnerId, profile, now);
   if (action === 'statement' || action === 'statementCsv') {
     const period = str(body.period, 7) || periodOf(now);
@@ -368,34 +577,199 @@ export async function partnerDesk(input: {
     if (action === 'statement') return statement;
     return { ...statement, csv: statementCsv(statement) };
   }
+  if (action === 'revenue') return partnerRevenue(db, partnerId, profile, gate.super);
   if (action === 'directory') return partnerDirectory(db, profile, gate.super, str(body.areaKey, 80), str(body.kind, 20));
   if (action === 'review') return partnerReview(db, gate, profile, body, now);
   throw new HttpsError('invalid-argument', 'Unknown partner desk action.');
 }
 
+function maskListing(data: Doc, id: string, kind: string, areaKey: string) {
+  return {
+    id, kind, areaKey, status: str(data.status, 40),
+    title: str(data.title || `${data.brand ?? ''} ${data.model ?? ''}`.trim(), 120),
+    hostId: str(data.hostId || data.creatorId, 128),
+    partnerReview: data.partnerReview ?? null,
+  };
+}
+
+function maskBooking(data: Doc, id: string, kind: string, areaKey: string) {
+  return { id, kind, areaKey, status: str(data.status, 40), partnerReview: data.partnerReview ?? null };
+}
+
+async function maskedPeople(db: Firestore, ids: string[]) {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, 200);
+  const docs = await Promise.all(unique.map((id) => db.doc(`users/${id}`).get()));
+  return docs.filter((doc) => doc.exists).map((doc) => maskPerson(doc.data() as Doc, doc.id));
+}
+
+async function syncPartnerEmailVerified(input: {
+  callerToken: Token;
+  auth?: StaffAuth;
+  portal?: { auth: PortalAuth; db: Firestore };
+}, uid: string) {
+  if (!input.auth?.updateUser) {
+    throw new HttpsError('failed-precondition', 'Workspace verification sync is not configured.', { code: 'EMAIL_NOT_VERIFIED' });
+  }
+  if (!input.portal) {
+    throw new HttpsError('failed-precondition', 'Admin portal provisioning is not configured.', { code: 'PORTAL_ACCOUNT_UNAVAILABLE' });
+  }
+  const email = str(input.callerToken?.email, 254).toLowerCase();
+  if (!email.includes('@')) throw new HttpsError('invalid-argument', 'A partner email is required.');
+  const portalUser = await input.portal.auth.getUserByEmail(email);
+  if (portalUser.emailVerified !== true) {
+    throw new HttpsError('failed-precondition', 'Verify your email before using the partner desk.', { code: 'EMAIL_NOT_VERIFIED' });
+  }
+  if (input.auth.updateUser) await input.auth.updateUser(uid, { emailVerified: true });
+  return { ok: true, emailVerified: true };
+}
+
+async function partnerRevenue(db: Firestore, partnerId: string, profile: Doc, superAdmin: boolean) {
+  const keys = new Set<string>((Array.isArray(profile.areaKeys) ? profile.areaKeys : []) as string[]);
+  const snap = await db.collection('area_revenue').where('partnerId', '==', partnerId).limit(1000).get();
+  let partnerShare = 0;
+  const lines = [];
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const areaKey = str(data.areaKey, 80);
+    if (!superAdmin && !keys.has(areaKey)) continue;
+    const share = round2(numOf(data.partnerShare));
+    partnerShare = round2(partnerShare + share);
+    if (superAdmin) {
+      lines.push({
+        entryId: doc.id,
+        period: data.period ?? '',
+        areaKey,
+        source: str(data.source, 40),
+        sourceId: str(data.sourceId, 128),
+        status: str(data.status, 20),
+        gross: numOf(data.gross),
+        platformRevenue: numOf(data.platformRevenue),
+        partnerShare: share,
+        tranyxShare: numOf(data.tranyxShare),
+      });
+    } else {
+      lines.push({
+        entryId: doc.id,
+        period: data.period ?? '',
+        areaKey,
+        source: str(data.source, 40),
+        status: str(data.status, 20),
+        partnerShare: share,
+      });
+    }
+  }
+  return { partnerId, partnerShare, lines };
+}
+
+async function partnerAccounts(db: Firestore, portalAuth?: PortalAuth) {
+  const snap = await db.collection('partners').limit(200).get();
+  const partners = await Promise.all(snap.docs.map(async (doc) => {
+    const data = doc.data();
+    const email = str(data.email, 254);
+    let emailVerified = false;
+    if (portalAuth && email.includes('@')) {
+      try {
+        emailVerified = (await portalAuth.getUserByEmail(email)).emailVerified === true;
+      } catch {
+        emailVerified = false;
+      }
+    }
+    return {
+      partnerId: doc.id,
+      email,
+      areas: data.areas ?? [],
+      areaKeys: data.areaKeys ?? [],
+      licenseStart: numOf(data.licenseStart),
+      termMonths: numOf(data.termMonths, 36),
+      renewalDate: numOf(data.renewalDate),
+      licenseFeePaid: numOf(data.licenseFeePaid),
+      status: str(data.status, 20),
+      emailVerified,
+    };
+  }));
+  return { partners };
+}
+
 async function partnerDirectory(db: Firestore, profile: Doc, superAdmin: boolean, areaKey: string, kind: string) {
   const key = slugArea(areaKey);
   if (!covers(profile, key, superAdmin)) throw new HttpsError('permission-denied', 'That area is outside this license.', { code: 'OUTSIDE_AREA' });
-  if (kind === 'users' || kind === 'providers' || kind === 'hosts' || kind === 'renters') {
+  if (kind === 'users') {
     const snap = await db.collection('users').where('areaKey', '==', key).limit(200).get();
     return { areaKey: key, kind, records: snap.docs.map((d) => maskPerson(d.data(), d.id)) };
   }
-  const listingKind = kind === 'jobs' ? 'jobs' : kind === 'properties' ? 'properties' : 'rentals';
-  if (!['rentals', 'properties', 'jobs'].includes(listingKind)) {
-    throw new HttpsError('invalid-argument', 'kind must be users, rentals, properties, or jobs.');
+  if (kind === 'hosts') {
+    const [rentals, properties, local] = await Promise.all([
+      db.collection('rentals').where('areaKey', '==', key).limit(200).get(),
+      db.collection('properties').where('areaKey', '==', key).limit(200).get(),
+      db.collection('users').where('areaKey', '==', key).limit(200).get(),
+    ]);
+    const ids = [...rentals.docs, ...properties.docs].map((doc) => str(doc.get('hostId'), 128));
+    for (const doc of local.docs) {
+      const type = String(doc.get('accountType') ?? '').toLowerCase();
+      if (type === 'host' || type === 'hybrid') ids.push(doc.id);
+    }
+    return { areaKey: key, kind, records: await maskedPeople(db, ids) };
+  }
+  if (kind === 'renters') {
+    const [vehicle, property] = await Promise.all([
+      db.collection('rental_requests').where('areaKey', '==', key).limit(200).get(),
+      db.collection('property_requests').where('areaKey', '==', key).limit(200).get(),
+    ]);
+    const ids = [...vehicle.docs, ...property.docs].flatMap((doc) => [
+      str(doc.get('renteeId'), 128), str(doc.get('renterId'), 128), str(doc.get('userId'), 128),
+    ]);
+    return { areaKey: key, kind, records: await maskedPeople(db, ids) };
+  }
+  if (kind === 'providers') {
+    const jobs = await db.collection('jobs').where('areaKey', '==', key).limit(200).get();
+    const ids = jobs.docs
+      .filter((doc) => String(doc.get('categoryGroup') ?? '').toLowerCase() === 'services')
+      .flatMap((doc) => [str(doc.get('creatorId'), 128), str(doc.get('acceptedApplicantId'), 128)]);
+    return { areaKey: key, kind, records: await maskedPeople(db, ids) };
+  }
+  if (kind === 'bookings') {
+    const [vehicle, property] = await Promise.all([
+      db.collection('rental_requests').where('areaKey', '==', key).limit(200).get(),
+      db.collection('property_requests').where('areaKey', '==', key).limit(200).get(),
+    ]);
+    return {
+      areaKey: key, kind,
+      records: [
+        ...vehicle.docs.map((doc) => maskBooking(doc.data(), doc.id, 'rental', key)),
+        ...property.docs.map((doc) => maskBooking(doc.data(), doc.id, 'property', key)),
+      ],
+    };
+  }
+  if (kind === 'tickets') {
+    const groups = await Promise.all(
+      ['supportTickets', 'support_tickets', 'tickets'].map((name) => db.collection(name).where('areaKey', '==', key).limit(200).get()),
+    );
+    return {
+      areaKey: key, kind,
+      records: groups.flatMap((snap) => snap.docs.map((doc) => ({
+        id: doc.id,
+        kind: 'ticket',
+        areaKey: key,
+        status: str(doc.get('status'), 40),
+        subject: str(doc.get('subject') || doc.get('title'), 120),
+      }))),
+    };
+  }
+  const listingKind = kind === 'jobs' || kind === 'gigs' || kind === 'services'
+    ? 'jobs'
+    : kind === 'properties' ? 'properties' : kind === 'rentals' ? 'rentals' : '';
+  if (!listingKind) {
+    throw new HttpsError('invalid-argument', 'kind must be hosts, renters, rentals, properties, providers, gigs, bookings, or tickets.');
   }
   const snap = await db.collection(listingKind).where('areaKey', '==', key).limit(200).get();
+  const docs = snap.docs.filter((doc) => {
+    if (kind !== 'gigs' && kind !== 'services') return true;
+    const services = String(doc.get('categoryGroup') ?? '').toLowerCase() === 'services';
+    return kind === 'services' ? services : !services;
+  });
   return {
-    areaKey: key, kind: listingKind,
-    records: snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id, kind: listingKind, areaKey: key, status: str(data.status, 40),
-        title: str(data.title || `${data.brand ?? ''} ${data.model ?? ''}`.trim(), 120),
-        hostId: str(data.hostId || data.creatorId, 128),
-        partnerReview: data.partnerReview ?? null,
-      };
-    }),
+    areaKey: key, kind,
+    records: docs.map((doc) => maskListing(doc.data(), doc.id, listingKind, key)),
   };
 }
 
@@ -526,7 +900,7 @@ export async function buildStatement(db: Firestore, partnerId: string, profile: 
   const payoutId = `${partnerId}_${period}`;
   const payoutSnap = await db.doc(`partner_payouts/${payoutId}`).get();
   const statement = {
-    partnerId, period, partnerShareBps: numOf(profile.partnerShareBps, 7000),
+    partnerId, period, partnerShareBps: numOf(profile.partnerShareBps, 3000),
     grossBookings: gross, platformRevenue: platform, partnerShare, tranyxShare, bySource, lines,
     payout: payoutSnap.exists ? { id: payoutId, ...payoutSnap.data() } : null,
     generatedAt: now,
@@ -690,7 +1064,7 @@ async function applyRevenue(db: Firestore, row: MoneyRow, now: number): Promise<
       const partner = pid ? await tx.get(db.doc(`partners/${pid}`)) : null;
       if (partner?.exists && partner.get('status') === 'active') {
         partnerId = pid;
-        bps = numOf(partner.get('partnerShareBps'), 7000);
+        bps = numOf(partner.get('partnerShareBps'), 3000);
       }
     }
     if (row.settled && !index.exists) {
@@ -731,7 +1105,7 @@ async function ensurePayout(db: Firestore, partnerId: string, profile: Doc, peri
   if (snap.exists && snap.get('status') !== 'pending') return;
   await ref.set({
     id, partnerId, period, amount: Math.max(0, amount), status: 'pending',
-    partnerShareBps: numOf(profile.partnerShareBps, 7000), updatedAt: now,
+    partnerShareBps: numOf(profile.partnerShareBps, 3000), updatedAt: now,
     createdAt: snap.exists ? snap.get('createdAt') ?? now : now,
   }, { merge: true });
 }
