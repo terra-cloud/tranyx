@@ -165,7 +165,8 @@
     }
 
     match /area_revenue/{entryId} {
-      allow read: if isClaimAdmin() || (resource != null && partnerCoversArea(resource.data.get('areaKey', '')));
+      // Raw lines include the platform share. Partners receive only their share from partnerDesk revenue.
+      allow read: if isClaimAdmin();
       allow write: if false;
     }
 
@@ -174,7 +175,8 @@
     }
 
     match /partner_statements/{statementId} {
-      allow read: if isClaimAdmin() || (isActivePartner() && resource.data.get('partnerId', '') == request.auth.token.partnerId);
+      // Statements include both shares. Partners do not read them directly.
+      allow read: if isClaimAdmin();
       allow write: if false;
     }
 
