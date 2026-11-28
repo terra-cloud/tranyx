@@ -2856,14 +2856,6 @@ class FirestoreService {
 
     if (await getUser(renteeId) == null) throw Exception('Renter profile not found.');
 
-    // Listing-published host flags only. users.idVerified is owner-writable and is not a trust signal.
-    final hostIsVerified = rental.hostIsVerified ?? (rental.hostVerificationStatus == 'VERIFIED');
-    final hostVerificationTier = rental.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None');
-    final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
-    const renteeIsVerified = false;
-    const renteeVerificationTier = 'None';
-    const renteeVerificationStatus = 'UNVERIFIED';
-
     await callMoney('bookingRequest', {
       'kind': 'vehicle',
       'listingId': rentalId,
@@ -2880,12 +2872,6 @@ class FirestoreService {
         'signatureName': '',
         'licenseNumber': licenseNumber,
         'hireWithDriver': hireWithDriver,
-        'hostIsVerified': hostIsVerified,
-        'hostVerificationStatus': hostVerificationStatus,
-        'hostVerificationTier': hostVerificationTier,
-        'renteeIsVerified': renteeIsVerified,
-        'renteeVerificationStatus': renteeVerificationStatus,
-        'renteeVerificationTier': renteeVerificationTier,
         'plateNumber': rental.plateNumber,
         'frontPhotoUrl': rental.frontPhotoUrl,
         'photoUrl': rental.frontPhotoUrl.isNotEmpty ? rental.frontPhotoUrl : rental.interiorPhotoUrl,
@@ -4305,14 +4291,6 @@ class FirestoreService {
 
     if (await getUser(renteeId) == null) throw Exception('Renter profile not found.');
 
-    // Listing-published host flags only. users.idVerified is owner-writable and is not a trust signal.
-    final hostIsVerified = property.hostIsVerified ?? (property.hostVerificationStatus == 'VERIFIED');
-    final hostVerificationTier = property.hostVerificationTier ?? (hostIsVerified ? 'Government ID Verified' : 'None');
-    final hostVerificationStatus = hostIsVerified ? 'VERIFIED' : 'UNVERIFIED';
-    const renteeIsVerified = false;
-    const renteeVerificationTier = 'None';
-    const renteeVerificationStatus = 'UNVERIFIED';
-
     await callMoney('bookingRequest', {
       'kind': 'property',
       'listingId': propertyId,
@@ -4339,12 +4317,6 @@ class FirestoreService {
         'contractDocumentId': CustomContractHelper.extractDocumentId(contractTerms) ?? '',
         'contractDocumentName': CustomContractHelper.extractFileName(contractTerms),
         'licenseNumber': licenseNumber ?? '',
-        'hostIsVerified': hostIsVerified,
-        'hostVerificationStatus': hostVerificationStatus,
-        'hostVerificationTier': hostVerificationTier,
-        'renteeIsVerified': renteeIsVerified,
-        'renteeVerificationStatus': renteeVerificationStatus,
-        'renteeVerificationTier': renteeVerificationTier,
       },
     });
 

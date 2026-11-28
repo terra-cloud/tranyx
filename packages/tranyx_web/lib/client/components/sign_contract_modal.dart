@@ -281,6 +281,7 @@ class _SignContractModalState extends State<SignContractModalComponent> {
                   propertyRental: _propertyRental,
                   customTerms: component.contractTerms,
                   contractType: (_vehicleRental?.contractType ?? _propertyRental?.contractType) ?? 'Custom Contract',
+                  requestId: component.requestId,
                 ),
 
               // Signature Canvas Box
