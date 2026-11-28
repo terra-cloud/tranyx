@@ -1284,7 +1284,7 @@ class _BookVehicleModalState extends State<BookVehicleModalComponent> {
                 );
                 return ContractViewerComponent(
                   appState: component.appState,
-                  vehicleRental: r['contractType'] == 'Custom Contract' ? null : previewVehicle,
+                  vehicleRental: previewVehicle,
                   customTerms: r['contractType'] == 'Custom Contract' ? r['contractTerms'] : null,
                   contractType: r['contractType'] as String?,
                 );
