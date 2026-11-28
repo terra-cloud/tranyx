@@ -16,7 +16,7 @@ import { issueNonce, walletLink, walletSignIn, walletStatus, type WalletAuthDeps
 import { uploadImage } from './image_upload';
 import { runGeminiAssist } from './gemini';
 import { subscribeWithBalance as runSubscribe } from './subscribe';
-import { bookingAction as runBookingAction, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
+import { bookingAction as runBookingAction, bookingPartyStatus as runBookingPartyStatus, bookingRequest as runBookingRequest, listingFee as runListingFee, rentalExtension as runRentalExtension } from './booking';
 import { jobAction as runJobAction } from './jobs';
 import { staffClaimsOnly, staffOps as runStaffOps } from './staff_ops';
 import { syncStaffAccess as runSyncStaffAccess } from './staff_access';
@@ -253,6 +253,9 @@ export const subscribeWithBalance = onCall(moneyOpts, (req) => moneyGuard('subsc
 
 /** Vehicle / property booking request: price recomputed from the listing, renter debited, request + escrow created. */
 export const bookingRequest = onCall(moneyOpts, (req) => moneyGuard('bookingRequest', () => runBookingRequest(moneyDeps(), caller(req), req.data)));
+
+/** Live KYC badges for the parties on a contract. Does not trust the listing snapshot. */
+export const bookingPartyStatus = onCall(moneyOpts, (req) => moneyGuard('bookingPartyStatus', () => runBookingPartyStatus(moneyDeps(), caller(req), req.data)));
 
 /** reject | cancelRequest | revoke | cancelActive | complete on a booking escrow (status-guarded, once). */
 export const bookingAction = onCall(moneyOpts, (req) => moneyGuard('bookingAction', () => runBookingAction(moneyDeps(), caller(req), req.data)));

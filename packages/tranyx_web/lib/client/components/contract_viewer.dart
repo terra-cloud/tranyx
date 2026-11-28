@@ -10,6 +10,7 @@ class ContractViewerComponent extends StatelessComponent {
   final PropertyRental? propertyRental;
   final String? customTerms;
   final String? contractType;
+  final String? requestId;
   final TranyxAppState? appState;
   final void Function(String source, String fileName)? onOpenPdfViewer;
 
@@ -18,6 +19,7 @@ class ContractViewerComponent extends StatelessComponent {
     this.propertyRental,
     this.customTerms,
     this.contractType,
+    this.requestId,
     this.appState,
     this.onOpenPdfViewer,
     super.key,
@@ -86,6 +88,55 @@ class ContractViewerComponent extends StatelessComponent {
           Component.text('Underwritten and defined by the listing host'),
         ]),
       ]),
+
+      if (vehicleRental != null)
+        _livePartyGrid(
+          isDark: isDark,
+          kind: 'vehicle',
+          listingId: vehicleRental!.id,
+          hostId: vehicleRental!.hostId,
+          hostName: vehicleRental!.hostName,
+          hostPhoto: vehicleRental!.hostPhotoUrl,
+          hostRole: 'OWNER / HOST (LESSOR)',
+          hostLicense: 'Host Identification Record',
+          hostSnap: vehicleRental!.hostIsVerified,
+          hostStatus: vehicleRental!.hostVerificationStatus,
+          hostTier: vehicleRental!.hostVerificationTier,
+          renteeId: vehicleRental!.renteeId,
+          renteeName: vehicleRental!.renteeName ?? '[Renter Full Name]',
+          renteePhoto: vehicleRental!.renteePhotoUrl,
+          renteeRole: 'RENTER / LESSEE',
+          renteeLicense: vehicleRental!.renteeLicenseNumber != null && vehicleRental!.renteeLicenseNumber!.isNotEmpty
+              ? 'Driver\'s License: ${vehicleRental!.renteeLicenseNumber}'
+              : '[Identity Reference]',
+          renteeSnap: vehicleRental!.renteeIsVerified,
+          renteeStatus: vehicleRental!.renteeVerificationStatus,
+          renteeTier: vehicleRental!.renteeVerificationTier,
+        )
+      else if (propertyRental != null)
+        _livePartyGrid(
+          isDark: isDark,
+          kind: 'property',
+          listingId: propertyRental!.id,
+          hostId: propertyRental!.hostId,
+          hostName: propertyRental!.hostName,
+          hostPhoto: propertyRental!.hostPhotoUrl,
+          hostRole: 'LESSOR / PROPERTY OWNER',
+          hostLicense: 'Landlord Identification Record',
+          hostSnap: propertyRental!.hostIsVerified,
+          hostStatus: propertyRental!.hostVerificationStatus,
+          hostTier: propertyRental!.hostVerificationTier,
+          renteeId: propertyRental!.renteeId,
+          renteeName: propertyRental!.renteeName ?? '[Tenant Full Name]',
+          renteePhoto: propertyRental!.renteePhotoUrl,
+          renteeRole: 'LESSEE / TENANT',
+          renteeLicense: propertyRental!.renteeLicenseNumber != null && propertyRental!.renteeLicenseNumber!.isNotEmpty
+              ? 'Government ID: ${propertyRental!.renteeLicenseNumber}'
+              : '[ID Reference]',
+          renteeSnap: propertyRental!.renteeIsVerified,
+          renteeStatus: propertyRental!.renteeVerificationStatus,
+          renteeTier: propertyRental!.renteeVerificationTier,
+        ),
 
       div(classes: 'border-t border-b ${isDark ? "border-zinc-800" : "border-zinc-200"} py-4 my-4 space-y-4', [
         if (isPdf) ...[
@@ -178,42 +229,29 @@ class ContractViewerComponent extends StatelessComponent {
 
       // Section 1: Parties
       _buildSectionHeader('1. PARTIES TO THE AGREEMENT', isDark),
-      div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6', [
-        _buildPartyCard(
-          role: 'OWNER / HOST (LESSOR)',
-          name: r.hostName,
-          license: 'Host Identification Record',
-          isVerified: PartyVerificationHelper.isPartyVerified(
-            isVerified: r.hostIsVerified,
-            status: r.hostVerificationStatus,
-          ),
-          verificationTier: PartyVerificationHelper.formatVerificationTier(
-            isVerified: r.hostIsVerified,
-            status: r.hostVerificationStatus,
-            explicitTier: r.hostVerificationTier,
-          ),
-          photoUrl: r.hostPhotoUrl,
-          isDark: isDark,
-        ),
-        _buildPartyCard(
-          role: 'RENTER / LESSEE',
-          name: r.renteeName ?? '[Renter Full Name]',
-          license: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
-              ? 'Driver\'s License: ${r.renteeLicenseNumber}'
-              : '[Identity Reference]',
-          isVerified: PartyVerificationHelper.isPartyVerified(
-            isVerified: r.renteeIsVerified,
-            status: r.renteeVerificationStatus,
-          ),
-          verificationTier: PartyVerificationHelper.formatVerificationTier(
-            isVerified: r.renteeIsVerified,
-            status: r.renteeVerificationStatus,
-            explicitTier: r.renteeVerificationTier,
-          ),
-          photoUrl: r.renteePhotoUrl,
-          isDark: isDark,
-        ),
-      ]),
+      _livePartyGrid(
+        isDark: isDark,
+        kind: 'vehicle',
+        listingId: r.id,
+        hostId: r.hostId,
+        hostName: r.hostName,
+        hostPhoto: r.hostPhotoUrl,
+        hostRole: 'OWNER / HOST (LESSOR)',
+        hostLicense: 'Host Identification Record',
+        hostSnap: r.hostIsVerified,
+        hostStatus: r.hostVerificationStatus,
+        hostTier: r.hostVerificationTier,
+        renteeId: r.renteeId,
+        renteeName: r.renteeName ?? '[Renter Full Name]',
+        renteePhoto: r.renteePhotoUrl,
+        renteeRole: 'RENTER / LESSEE',
+        renteeLicense: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
+            ? 'Driver\'s License: ${r.renteeLicenseNumber}'
+            : '[Identity Reference]',
+        renteeSnap: r.renteeIsVerified,
+        renteeStatus: r.renteeVerificationStatus,
+        renteeTier: r.renteeVerificationTier,
+      ),
 
       // Section 2: Specs
       _buildSectionHeader('2. VEHICLE SPECIFICATIONS', isDark),
@@ -305,42 +343,29 @@ class ContractViewerComponent extends StatelessComponent {
 
       // Section 1: Parties
       _buildSectionHeader('1. PARTIES TO THE AGREEMENT', isDark),
-      div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6', [
-        _buildPartyCard(
-          role: 'LESSOR / PROPERTY OWNER',
-          name: r.hostName,
-          license: 'Landlord Identification Record',
-          isVerified: PartyVerificationHelper.isPartyVerified(
-            isVerified: r.hostIsVerified,
-            status: r.hostVerificationStatus,
-          ),
-          verificationTier: PartyVerificationHelper.formatVerificationTier(
-            isVerified: r.hostIsVerified,
-            status: r.hostVerificationStatus,
-            explicitTier: r.hostVerificationTier,
-          ),
-          photoUrl: r.hostPhotoUrl,
-          isDark: isDark,
-        ),
-        _buildPartyCard(
-          role: 'LESSEE / TENANT',
-          name: r.renteeName ?? '[Tenant Full Name]',
-          license: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
-              ? 'Government ID: ${r.renteeLicenseNumber}'
-              : '[ID Reference]',
-          isVerified: PartyVerificationHelper.isPartyVerified(
-            isVerified: r.renteeIsVerified,
-            status: r.renteeVerificationStatus,
-          ),
-          verificationTier: PartyVerificationHelper.formatVerificationTier(
-            isVerified: r.renteeIsVerified,
-            status: r.renteeVerificationStatus,
-            explicitTier: r.renteeVerificationTier,
-          ),
-          photoUrl: r.renteePhotoUrl,
-          isDark: isDark,
-        ),
-      ]),
+      _livePartyGrid(
+        isDark: isDark,
+        kind: 'property',
+        listingId: r.id,
+        hostId: r.hostId,
+        hostName: r.hostName,
+        hostPhoto: r.hostPhotoUrl,
+        hostRole: 'LESSOR / PROPERTY OWNER',
+        hostLicense: 'Landlord Identification Record',
+        hostSnap: r.hostIsVerified,
+        hostStatus: r.hostVerificationStatus,
+        hostTier: r.hostVerificationTier,
+        renteeId: r.renteeId,
+        renteeName: r.renteeName ?? '[Tenant Full Name]',
+        renteePhoto: r.renteePhotoUrl,
+        renteeRole: 'LESSEE / TENANT',
+        renteeLicense: r.renteeLicenseNumber != null && r.renteeLicenseNumber!.isNotEmpty
+            ? 'Government ID: ${r.renteeLicenseNumber}'
+            : '[ID Reference]',
+        renteeSnap: r.renteeIsVerified,
+        renteeStatus: r.renteeVerificationStatus,
+        renteeTier: r.renteeVerificationTier,
+      ),
 
       // Section 2: Specs
       _buildSectionHeader('2. PROPERTY SPECIFICATIONS', isDark),
@@ -441,6 +466,82 @@ class ContractViewerComponent extends StatelessComponent {
       [
         Component.text(title),
       ],
+    );
+  }
+
+  Component _livePartyGrid({
+    required bool isDark,
+    required String kind,
+    required String listingId,
+    required String hostId,
+    required String hostName,
+    required String? hostPhoto,
+    required String hostRole,
+    required String hostLicense,
+    required bool? hostSnap,
+    required String? hostStatus,
+    required String? hostTier,
+    required String? renteeId,
+    required String renteeName,
+    required String? renteePhoto,
+    required String renteeRole,
+    required String renteeLicense,
+    required bool? renteeSnap,
+    required String? renteeStatus,
+    required String? renteeTier,
+  }) {
+    return _ContractPartyStatus(
+      appState: appState,
+      kind: kind,
+      listingId: listingId,
+      requestId: requestId,
+      builder: (hostLive, hostLiveStatus, hostLiveTier, renteeLive, renteeLiveStatus, renteeLiveTier) {
+        final profile = appState?.userProfile;
+        final host = PartyVerificationHelper.resolveDisplayedParty(
+          partyUid: hostId,
+          viewerUid: profile?.uid,
+          viewerIdVerified: profile?.idVerified,
+          viewerLevel: profile?.verificationLevel,
+          snapshotVerified: hostSnap,
+          snapshotStatus: hostStatus,
+          snapshotTier: hostTier,
+          liveVerified: hostLive,
+          liveStatus: hostLiveStatus,
+          liveTier: hostLiveTier,
+        );
+        final rentee = PartyVerificationHelper.resolveDisplayedParty(
+          partyUid: renteeId,
+          viewerUid: profile?.uid,
+          viewerIdVerified: profile?.idVerified,
+          viewerLevel: profile?.verificationLevel,
+          snapshotVerified: renteeSnap,
+          snapshotStatus: renteeStatus,
+          snapshotTier: renteeTier,
+          liveVerified: renteeLive,
+          liveStatus: renteeLiveStatus,
+          liveTier: renteeLiveTier,
+        );
+        return div(classes: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-6', [
+          _buildPartyCard(
+            role: hostRole,
+            name: hostName,
+            license: hostLicense,
+            isVerified: host.verified,
+            verificationTier: host.tier,
+            photoUrl: hostPhoto,
+            isDark: isDark,
+          ),
+          _buildPartyCard(
+            role: renteeRole,
+            name: renteeName,
+            license: renteeLicense,
+            isVerified: rentee.verified,
+            verificationTier: rentee.tier,
+            photoUrl: renteePhoto,
+            isDark: isDark,
+          ),
+        ]);
+      },
     );
   }
 
@@ -596,5 +697,76 @@ class ContractViewerComponent extends StatelessComponent {
         ],
       ],
     );
+  }
+}
+
+/// Loads live KYC badges. The contract document only stores a snapshot, and
+/// `users.idVerified` is not readable on the other party's profile.
+class _ContractPartyStatus extends StatefulComponent {
+  final TranyxAppState? appState;
+  final String kind;
+  final String listingId;
+  final String? requestId;
+  final Component Function(
+    bool? hostLive,
+    String? hostStatus,
+    String? hostTier,
+    bool? renteeLive,
+    String? renteeStatus,
+    String? renteeTier,
+  ) builder;
+
+  const _ContractPartyStatus({
+    required this.appState,
+    required this.kind,
+    required this.listingId,
+    required this.requestId,
+    required this.builder,
+  });
+
+  @override
+  State<_ContractPartyStatus> createState() => _ContractPartyStatusState();
+}
+
+class _ContractPartyStatusState extends State<_ContractPartyStatus> {
+  bool? _hostLive;
+  String? _hostStatus;
+  String? _hostTier;
+  bool? _renteeLive;
+  String? _renteeStatus;
+  String? _renteeTier;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final app = component.appState;
+    if (app == null || component.listingId.isEmpty) return;
+    try {
+      final res = await app.firestore.callCloudFunction('bookingPartyStatus', {
+        'kind': component.kind,
+        'listingId': component.listingId,
+        if (component.requestId != null && component.requestId!.isNotEmpty) 'requestId': component.requestId,
+      });
+      if (!mounted) return;
+      setState(() {
+        _hostLive = res['hostVerified'] == true;
+        _hostStatus = res['hostStatus'] as String?;
+        _hostTier = res['hostTier'] as String?;
+        if (res.containsKey('renteeVerified')) {
+          _renteeLive = res['renteeVerified'] == true;
+          _renteeStatus = res['renteeStatus'] as String?;
+          _renteeTier = res['renteeTier'] as String?;
+        }
+      });
+    } catch (_) {}
+  }
+
+  @override
+  Component build(BuildContext context) {
+    return component.builder(_hostLive, _hostStatus, _hostTier, _renteeLive, _renteeStatus, _renteeTier);
   }
 }
