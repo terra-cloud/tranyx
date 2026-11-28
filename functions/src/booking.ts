@@ -32,6 +32,21 @@ const CLOSED = ['Rejected', 'Cancelled', 'Completed', 'Refunded'];
 
 type Doc = Record<string, any>;
 
+/** Government ID accepted. Matches the profile KYC card: users.idVerified, level 2, or an approved submission. */
+export function kycBadge(user: Doc | undefined, kyc: Doc | undefined): { verified: boolean; status: string; tier: string } {
+  const idStatus = String(kyc?.idVerification?.status ?? '').toLowerCase();
+  const verified = user?.idVerified === true
+    || Number(user?.verificationLevel ?? 0) >= 2
+    || idStatus === 'approved' || idStatus === 'accepted' || idStatus === 'verified';
+  return { verified, status: verified ? 'VERIFIED' : 'UNVERIFIED', tier: verified ? 'Government ID Verified' : 'None' };
+}
+
+async function loadKyc(db: MoneyDeps['db'], uid: string) {
+  if (!uid) return kycBadge(undefined, undefined);
+  const [userSnap, kycSnap] = await Promise.all([db.doc(`users/${uid}`).get(), db.doc(`kyc_submissions/${uid}`).get()]);
+  return kycBadge(userSnap.exists ? userSnap.data() as Doc : undefined, kycSnap.exists ? kycSnap.data() as Doc : undefined);
+}
+
 function parseKind(v: unknown): Kind {
   if (v !== 'vehicle' && v !== 'property') throw new HttpsError('invalid-argument', "kind must be 'vehicle' or 'property'.");
   return v;
@@ -54,8 +69,10 @@ const refs = (deps: MoneyDeps, kind: Kind, requestId: string, listingId?: string
 const SERVER_OWNED = new Set([
   'id', 'status', 'renteeId', 'renterId', 'hostId', 'totalCost', 'bookingFee', 'originalCost', 'discountAmount', 'promoCode',
   'createdAt', 'approvedAt', 'rejectedAt', 'cancelledAt', 'completedAt', 'allowChat', 'baseRentAmount', 'securityDepositAmount',
-  'customerPlatformFeeAmount', 'customerPlatformFeeRate', 'hostCommissionRate', 'totalCustomerPaid', 'appliedTier', 'unitRate',
+    'customerPlatformFeeAmount', 'customerPlatformFeeRate', 'hostCommissionRate', 'totalCustomerPaid', 'appliedTier', 'unitRate',
   'totalDays', 'depositType', 'depositValue', 'escrowStatus', 'refundAmount',
+  'hostIsVerified', 'hostVerificationStatus', 'hostVerificationTier',
+  'renteeIsVerified', 'renteeVerificationStatus', 'renteeVerificationTier',
 ]);
 
 function clientFields(raw: unknown): Doc {
@@ -96,6 +113,8 @@ export async function bookingRequest(deps: MoneyDeps, auth: CallerAuth | undefin
     const listingSnap = await tx.get(db.doc(`${c.listing}/${listingId}`));
     const feeSnap = await tx.get(db.doc('settings/platform_fees'));
     const promoSnap = promoCode ? await tx.get(db.doc(`promos/${promoCode}`)) : null;
+    const renterUser = await tx.get(db.doc(`users/${uid}`));
+    const renterKyc = await tx.get(db.doc(`kyc_submissions/${uid}`));
     const w = new Wallet(tx, db);
     await w.load(uid);
     if (!listingSnap.exists) throw new HttpsError('not-found', 'Listing not found.');
@@ -103,6 +122,10 @@ export async function bookingRequest(deps: MoneyDeps, auth: CallerAuth | undefin
     const hostId = str(l.hostId, 128);
     if (!hostId) throw new HttpsError('failed-precondition', 'Listing has no host.');
     if (hostId === uid) throw new HttpsError('failed-precondition', 'You cannot book your own listing.');
+    const hostUser = await tx.get(db.doc(`users/${hostId}`));
+    const hostKyc = await tx.get(db.doc(`kyc_submissions/${hostId}`));
+    const renterBadge = kycBadge(renterUser.exists ? renterUser.data() as Doc : undefined, renterKyc.exists ? renterKyc.data() as Doc : undefined);
+    const hostBadge = kycBadge(hostUser.exists ? hostUser.data() as Doc : undefined, hostKyc.exists ? hostKyc.data() as Doc : undefined);
     const blocked = ['Inactive', 'Unpublished', 'Archived', 'Deleted', 'Not Accepting Bookings'];
     if (blocked.includes(String(l.status)) || l.isDeleted === true || l.acceptingBookings === false) {
       throw new HttpsError('failed-precondition', 'This listing is not accepting new bookings.');
@@ -166,6 +189,12 @@ export async function bookingRequest(deps: MoneyDeps, auth: CallerAuth | undefin
       [c.idField]: listingId,
       renteeId: uid,
       hostId,
+      renteeIsVerified: renterBadge.verified,
+      renteeVerificationStatus: renterBadge.status,
+      renteeVerificationTier: renterBadge.tier,
+      hostIsVerified: hostBadge.verified,
+      hostVerificationStatus: hostBadge.status,
+      hostVerificationTier: hostBadge.tier,
       status: 'Pending',
       createdAt: now,
       totalCost: kind === 'vehicle' ? base : totalPaid,
@@ -197,6 +226,33 @@ export async function bookingRequest(deps: MoneyDeps, auth: CallerAuth | undefin
     writeOp(tx, db, uid, key, 'bookingRequest', result, now);
     return result;
   });
+}
+
+/** Live KYC badges for a contract. Reads users + kyc_submissions with the Admin SDK. */
+export async function bookingPartyStatus(deps: MoneyDeps, auth: CallerAuth | undefined, data: unknown) {
+  const uid = requireAuth(auth);
+  const d = parseBody(data);
+  const kind = parseKind(d.kind);
+  const listingId = parseId(d.listingId, 'listingId');
+  const c = C[kind];
+  const listing = await deps.db.doc(`${c.listing}/${listingId}`).get();
+  if (!listing.exists) throw new HttpsError('not-found', 'Listing not found.');
+  const hostId = str(listing.get('hostId'), 128);
+  const host = await loadKyc(deps.db, hostId);
+  let rentee: ReturnType<typeof kycBadge> | null = null;
+  const requestId = d.requestId ? parseId(d.requestId, 'requestId') : '';
+  if (requestId) {
+    const req = await deps.db.doc(`${c.requests}/${requestId}`).get();
+    const renteeId = str(req.get('renteeId') ?? req.get('renterId'), 128);
+    if (req.exists && (uid === hostId || uid === renteeId)) rentee = await loadKyc(deps.db, renteeId);
+  }
+  return {
+    hostId,
+    hostVerified: host.verified,
+    hostStatus: host.status,
+    hostTier: host.tier,
+    ...(rentee ? { renteeVerified: rentee.verified, renteeStatus: rentee.status, renteeTier: rentee.tier } : {}),
+  };
 }
 
 // ── bookingAction ──────────────────────────────────────────────────────────────────────────────

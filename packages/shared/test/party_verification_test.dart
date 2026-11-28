@@ -40,6 +40,35 @@ void main() {
       expect(label, equals('Identity Status: Unverified Account'));
     });
 
+    test('a KYC-verified viewer is not shown as unverified from a stale contract snapshot', () {
+      final shown = PartyVerificationHelper.resolveDisplayedParty(
+        partyUid: 'renter',
+        viewerUid: 'renter',
+        viewerIdVerified: true,
+        viewerLevel: 2,
+        snapshotVerified: false,
+        snapshotStatus: 'UNVERIFIED',
+        snapshotTier: 'None',
+      );
+      expect(shown.verified, isTrue);
+      expect(shown.status, 'VERIFIED');
+      expect(shown.tier, 'Government ID Verified');
+    });
+
+    test('a live counterparty lookup overrides the snapshot', () {
+      final shown = PartyVerificationHelper.resolveDisplayedParty(
+        partyUid: 'host',
+        viewerUid: 'renter',
+        snapshotVerified: false,
+        snapshotStatus: 'UNVERIFIED',
+        liveVerified: true,
+        liveStatus: 'VERIFIED',
+        liveTier: 'Government ID Verified',
+      );
+      expect(shown.verified, isTrue);
+      expect(shown.status, 'VERIFIED');
+    });
+
     test('Scenario 2: Verified User with Government ID (KYC completed)', () {
       final isVerified = PartyVerificationHelper.isPartyVerified(
         isVerified: true,

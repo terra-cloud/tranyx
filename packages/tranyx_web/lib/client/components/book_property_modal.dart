@@ -973,6 +973,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                     hostVerificationStatus: baseProperty.hostVerificationStatus ?? (pData['hostVerificationStatus'] as String? ?? 'UNVERIFIED'),
                     hostVerificationTier: baseProperty.hostVerificationTier ?? (pData['hostVerificationTier'] as String? ?? 'None'),
                     renteeName: component.appState.userProfile?.name,
+                    renteeId: component.appState.userProfile?.uid,
                     renteePhotoUrl: component.appState.userProfile?.photoUrl,
                     renteeLicenseNumber: _licenseNumber.isNotEmpty ? _licenseNumber : null,
                     renteeIsVerified: component.appState.userProfile?.idVerified == true || (component.appState.userProfile?.verificationLevel ?? 0) >= 2,
@@ -986,7 +987,7 @@ class _BookPropertyModalState extends State<BookPropertyModalComponent> {
                   );
                   return ContractViewerComponent(
                     appState: component.appState,
-                    propertyRental: pData['contractType'] == 'Custom Contract' ? null : previewProperty,
+                    propertyRental: previewProperty,
                     customTerms: pData['contractType'] == 'Custom Contract' ? pData['contractTerms'] : null,
                     contractType: pData['contractType'] as String?,
                   );
