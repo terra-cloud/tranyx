@@ -4,7 +4,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import type { MoneyDeps } from '../src/money';
 import { subscribeWithBalance } from '../src/subscribe';
-import { bookingAction, bookingRequest, listingFee, rentalExtension } from '../src/booking';
+import { bookingAction, bookingPartyStatus, bookingRequest, listingFee, rentalExtension } from '../src/booking';
 import { jobAction } from '../src/jobs';
 import { optimizedBase, promoDiscount, propertyFinancials } from '../src/pricing';
 
@@ -98,6 +98,21 @@ describe('vehicle booking', () => {
     expect(esc).toMatchObject({ status: 'Held', amount: 3000, totalPaid: 3090, renteeId: 'renter', hostId: 'host' });
     const req = (await db.doc(`rental_requests/${r.requestId}`).get()).data()!;
     expect(req).toMatchObject({ totalCost: 3000, bookingFee: 90, status: 'Pending', renteeId: 'renter', brand: 'Toyota', durationType: 'Daily', multiplier: 3 });
+  });
+  it('stamps KYC from the user record, ignoring a client unverified snapshot', async () => {
+    await db.doc('users/host').set({ idVerified: true, verificationLevel: 2 }, { merge: true });
+    await db.doc('kyc_submissions/renter').set({ idVerification: { status: 'approved' } });
+    const r = await vehicleReq(key(), { request: { renteeIsVerified: false, renteeVerificationStatus: 'UNVERIFIED', hostIsVerified: false, renteeName: 'R', brand: 'FAKE' } });
+    const req = (await db.doc(`rental_requests/${r.requestId}`).get()).data()!;
+    expect(req.renteeIsVerified).toBe(true);
+    expect(req.renteeVerificationStatus).toBe('VERIFIED');
+    expect(req.hostIsVerified).toBe(true);
+    expect(req.hostVerificationStatus).toBe('VERIFIED');
+    const hostOnly = await bookingPartyStatus(deps(), as('renter'), { kind: 'vehicle', listingId: 'v1' });
+    expect(hostOnly.hostVerified).toBe(true);
+    expect(hostOnly.renteeVerified).toBeUndefined();
+    const parties = await bookingPartyStatus(deps(), as('host'), { kind: 'vehicle', listingId: 'v1', requestId: r.requestId });
+    expect(parties.renteeVerified).toBe(true);
   });
   it('is idempotent, blocks own listing, insufficient funds, unavailable listing', async () => {
     const k = key();

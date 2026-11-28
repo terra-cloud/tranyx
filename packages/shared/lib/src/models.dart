@@ -1883,6 +1883,54 @@ class PartyVerificationHelper {
     return false;
   }
 
+  /// Contract badges. A live lookup wins. Otherwise the signed-in party's own
+  /// profile (idVerified / verification level) wins over a stale snapshot.
+  static ({bool verified, String status, String tier}) resolveDisplayedParty({
+    String? partyUid,
+    String? viewerUid,
+    bool? viewerIdVerified,
+    int? viewerLevel,
+    bool? snapshotVerified,
+    String? snapshotStatus,
+    String? snapshotTier,
+    bool? liveVerified,
+    String? liveStatus,
+    String? liveTier,
+  }) {
+    if (liveVerified != null) {
+      final tier = formatVerificationTier(
+        isVerified: liveVerified,
+        status: liveStatus,
+        explicitTier: liveTier,
+        idVerified: liveVerified,
+      );
+      return (verified: liveVerified, status: liveStatus ?? (liveVerified ? 'VERIFIED' : 'UNVERIFIED'), tier: tier);
+    }
+    if (partyUid != null && partyUid.isNotEmpty && partyUid == viewerUid) {
+      final verified = isPartyVerified(
+        idVerified: viewerIdVerified,
+        level: viewerLevel,
+        isVerified: snapshotVerified,
+        status: snapshotStatus,
+      );
+      final tier = formatVerificationTier(
+        isVerified: verified,
+        status: snapshotStatus,
+        level: viewerLevel,
+        idVerified: viewerIdVerified,
+        explicitTier: snapshotTier,
+      );
+      return (verified: verified, status: verified ? 'VERIFIED' : 'UNVERIFIED', tier: tier);
+    }
+    final verified = isPartyVerified(isVerified: snapshotVerified, status: snapshotStatus);
+    final tier = formatVerificationTier(
+      isVerified: snapshotVerified,
+      status: snapshotStatus,
+      explicitTier: snapshotTier,
+    );
+    return (verified: verified, status: snapshotStatus ?? (verified ? 'VERIFIED' : 'UNVERIFIED'), tier: tier);
+  }
+
   static String formatVerificationTier({
     bool? isVerified,
     String? status,

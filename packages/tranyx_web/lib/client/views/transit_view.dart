@@ -1634,10 +1634,10 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           'click': (_) => s.openManageVehicle(r),
       },
       [
-        div(classes: 'flex items-start justify-between mb-4', [
-          div([
+        div(classes: 'flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5 mb-4 min-w-0', [
+          div(classes: 'min-w-0 max-w-full', [
             p(classes: 'font-bold text-lg', [Component.text(model)]),
-            p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"} capitalize flex items-center gap-1.5', [
+            p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"} capitalize flex flex-wrap items-center gap-1.5 min-w-0', [
               Component.text(type),
               span([], classes: 'inline-block w-1 h-1 rounded-full bg-zinc-500'),
               span(
@@ -1657,7 +1657,7 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
               ),
             ]),
           ]),
-          div(classes: 'flex items-center gap-1.5', [
+          div(classes: 'flex flex-wrap items-center justify-end gap-1.5 max-w-full shrink-0 whitespace-nowrap ml-auto', [
             if (isHostView) ...[
               if (hasGps)
                 span(
@@ -1955,14 +1955,14 @@ class _TransitViewComponentState extends State<TransitViewComponent> {
           'click': (_) => s.openManageProperty(prop.toMap()),
       },
       [
-        div(classes: 'flex items-start justify-between mb-4', [
-          div([
+        div(classes: 'flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5 mb-4 min-w-0', [
+          div(classes: 'min-w-0 max-w-full', [
             p(classes: 'font-bold text-lg leading-tight line-clamp-1', [Component.text(prop.title)]),
             p(classes: 'text-sm ${isDark ? "text-zinc-550" : "text-zinc-500"} capitalize', [
               Component.text('${prop.category.label} • ${prop.type.label}'),
             ]),
           ]),
-          div(classes: 'flex items-center gap-1.5', [
+          div(classes: 'flex flex-wrap items-center justify-end gap-1.5 max-w-full shrink-0 whitespace-nowrap ml-auto', [
             if (isHostView && unreadCount > 0)
               span(
                 classes:
